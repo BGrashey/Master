@@ -1,1 +1,1 @@
-Das hier ist eine RMD um meinen ersten Commit in diese Repo zu vervollständigen.
+Das hier ist eine README um meinen ersten Commit in diese Repo zu vervollständigen.
