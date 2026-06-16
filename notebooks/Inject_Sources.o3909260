@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/data/hetdex/u/bgrashey/git/Master/notebooks/../python/inject.py", line 1, in <module>
-    from tools.simulation import inject_sources_into_cube, save_cube_fits, fits_header, build_fov_mask, generate_positions
-ModuleNotFoundError: No module named 'tools'

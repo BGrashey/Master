@@ -316,5 +316,5 @@ def catalog_to_wcs_table(cat: dict, wcs_header=None) -> Table:
         world = wcs.all_pix2world(x, y, z, 0)
         tab["ra"] = world[0]
         tab["dec"] = world[1]
-        tab["wavelength"] = world[2]
+        tab["z"] = world[2]
     return tab

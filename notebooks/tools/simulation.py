@@ -153,32 +153,19 @@ def generate_positions(
     nz, ny, nx, wcs,
     existing_catalog,
     chunks,
-    n_per_chunk=100,
+    n_per_bin=10,
+    n_bins=10,
     matching_radius_arcsec=2.0,
     fov_mask=None,
 ):
-    """
-    Erzeugt n_per_chunk zufaellige RA/DEC/z-Kombinationen pro Chunk
-    (Chunk = (z_start, z_end) Slice-Bereich).
-
-    - liegt im FOV (falls fov_mask gegeben)
-    - liegt nicht zu nah am spektralen/spatialen Rand (EDGE_MARGIN)
-    - matched nicht mit existing_catalog (RA/DEC/z)
-
-    Gibt eine Liste von Dicts zurueck: {chunk_index, x_pix, y_pix, z_pix, z, ra, dec}
-    """
-
     ra_ax = dec_ax = wave_ax = None
     for i, ctype in enumerate(wcs.wcs.ctype):
         cu = ctype.upper()
         if 'RA'   in cu: ra_ax   = i
         elif 'DEC' in cu: dec_ax  = i
         elif any(k in cu for k in ('WAVE', 'AWAV', 'FREQ')): wave_ax = i
-
     if None in (ra_ax, dec_ax, wave_ax):
-        raise ValueError(
-            f"WCS-Achsen nicht eindeutig: {list(wcs.wcs.ctype)}"
-        )
+        raise ValueError(f"WCS-Achsen nicht eindeutig: {list(wcs.wcs.ctype)}")
 
     def pix_to_world(x_pix, y_pix, z_pix):
         pix = [0.0, 0.0, 0.0]
@@ -205,11 +192,9 @@ def generate_positions(
         existing_coords = SkyCoord(ra=col_ra*u.deg, dec=col_dec*u.deg)
 
     positions = []
-
     for chunk_idx, (chunk_start, chunk_end) in enumerate(chunks):
         chunk_start = max(chunk_start, 0)
         chunk_end   = min(chunk_end, nz)
-
         z_lo = max(chunk_start, EDGE_MARGIN)
         z_hi = min(chunk_end, nz - EDGE_MARGIN)
         if z_hi <= z_lo:
@@ -217,58 +202,64 @@ def generate_positions(
                   f"wird uebersprungen.")
             continue
 
-        generated = 0
-        attempts  = 0
-        max_attempts = n_per_chunk * 50
+        bin_edges = np.linspace(z_lo, z_hi, n_bins + 1)
 
-        while generated < n_per_chunk and attempts < max_attempts:
-            attempts += 1
+        for bin_idx in range(n_bins):
+            bin_z_lo = bin_edges[bin_idx]
+            bin_z_hi = bin_edges[bin_idx + 1]
 
-            z_pix = np.random.uniform(z_lo, z_hi)
-            z = z_from_slice(z_pix)
-            if z <= 0 or not np.isfinite(z):
-                continue
+            generated = 0
+            attempts  = 0
+            max_attempts = n_per_bin * 50
 
-            x_pix = np.random.uniform(EDGE_MARGIN, nx - EDGE_MARGIN)
-            y_pix = np.random.uniform(EDGE_MARGIN, ny - EDGE_MARGIN)
-
-            if fov_mask is not None and not pixel_in_fov(x_pix, y_pix, fov_mask):
-                continue
-
-            ra_val, dec_val = pix_to_world(x_pix, y_pix, z_pix)
-            if not (np.isfinite(ra_val) and np.isfinite(dec_val)):
-                continue
-
-            if existing_coords is not None:
-                new_coord = SkyCoord(ra=ra_val*u.deg, dec=dec_val*u.deg)
-                sep = new_coord.separation(existing_coords).arcsec
-                if np.any((sep < matching_radius_arcsec) & (np.abs(col_z - z) < 0.05)):
+            while generated < n_per_bin and attempts < max_attempts:
+                attempts += 1
+                z_pix = np.random.uniform(bin_z_lo, bin_z_hi)
+                z = z_from_slice(z_pix)
+                if z <= 0 or not np.isfinite(z):
                     continue
 
-            positions.append({
-                'chunk_index': chunk_idx,
-                'x_pix': x_pix,
-                'y_pix': y_pix,
-                'z_pix': z_pix,
-                'z':     z,
-                'ra':    ra_val,
-                'dec':   dec_val,
-            })
-            generated += 1
+                x_pix = np.random.uniform(EDGE_MARGIN, nx - EDGE_MARGIN)
+                y_pix = np.random.uniform(EDGE_MARGIN, ny - EDGE_MARGIN)
 
-        if generated < n_per_chunk:
-            print(f"Warnung: Chunk {chunk_idx} ({chunk_start}-{chunk_end}): "
-                  f"nur {generated}/{n_per_chunk} Positionen gefunden "
-                  f"(nach {attempts} Versuchen).")
+                if fov_mask is not None and not pixel_in_fov(x_pix, y_pix, fov_mask):
+                    continue
+
+                ra_val, dec_val = pix_to_world(x_pix, y_pix, z_pix)
+                if not (np.isfinite(ra_val) and np.isfinite(dec_val)):
+                    continue
+
+                if existing_coords is not None:
+                    new_coord = SkyCoord(ra=ra_val*u.deg, dec=dec_val*u.deg)
+                    sep = new_coord.separation(existing_coords).arcsec
+                    if np.any((sep < matching_radius_arcsec) & (np.abs(col_z - z) < 0.05)):
+                        continue
+
+                positions.append({
+                    'chunk_index': chunk_idx,
+                    'bin_index':   bin_idx,
+                    'x_pix': x_pix,
+                    'y_pix': y_pix,
+                    'z_pix': z_pix,
+                    'z':     z,
+                    'ra':    ra_val,
+                    'dec':   dec_val,
+                })
+                generated += 1
+
+            if generated < n_per_bin:
+                print(f"Warnung: Chunk {chunk_idx}, Bin {bin_idx} ({bin_z_lo:.1f}-{bin_z_hi:.1f}): "
+                      f"nur {generated}/{n_per_bin} Positionen gefunden "
+                      f"(nach {attempts} Versuchen).")
 
     return positions
+
 
 
 def inject_sources_into_cube(
     existing_cube,
     positions,
-    flux_bin,
-    bin_idx,
+    flux_bins,
     sigma_range=(4, 15),
     sigma_lam=10,
     elipticity_range=(0.7, 1),
@@ -285,12 +276,11 @@ def inject_sources_into_cube(
     Gibt das modifizierte Cube und einen Katalog der injizierten Quellen zurueck.
     """
     nz, ny, nx = existing_cube.shape
-    bin_min, bin_max = flux_bin
     new_sources_catalog = []
     source_counter = 0
 
     for pos in positions:
-        flux = np.random.uniform(bin_min, bin_max)
+        flux = np.random.uniform(*flux_bins[pos["bin_index"]])
         theta      = np.random.uniform(*theta_range)
         sigma      = np.random.uniform(*sigma_range)
         elipticity = np.random.uniform(*elipticity_range)
@@ -320,7 +310,7 @@ def inject_sources_into_cube(
         new_sources_catalog.append({
             'id':          source_counter,
             'chunk_index': pos['chunk_index'],
-            "bin_index" : bin_idx,
+            "bin_index" : pos["bin_index"],
             'ra':          pos['ra'],
             'dec':         pos['dec'],
             'z':           pos['z'],

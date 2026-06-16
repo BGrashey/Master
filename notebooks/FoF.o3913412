@@ -1,0 +1,32 @@
+Traceback (most recent call last):
+  File "/data/hetdex/u/bgrashey/git/Master/notebooks/fof_execution.py", line 16, in <module>
+    sn_cube = da.from_zarr(sn_cube_path, read_only=True)
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/dask/array/core.py", line 3788, in from_zarr
+    z = zarr.open_array(store=zarr_store, path=component, **kwargs)
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/api/synchronous.py", line 1378, in open_array
+    sync(
+    ~~~~^
+        async_api.open_array(
+        ^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+        )
+        ^
+    )
+    ^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/sync.py", line 158, in sync
+    raise return_result
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/sync.py", line 118, in _runner
+    return await coro
+           ^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/api/asynchronous.py", line 1239, in open_array
+    return await AsyncArray.open(store_path, zarr_format=zarr_format)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/array.py", line 772, in open
+    metadata_dict = await get_array_metadata(store_path, zarr_format=zarr_format)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/array.py", line 298, in get_array_metadata
+    parse_node_type_array(metadata_dict.get("node_type"))
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/metadata/v3.py", line 58, in parse_node_type_array
+    raise NodeTypeValidationError(msg)
+zarr.errors.NodeTypeValidationError: Invalid value for 'node_type'. Expected 'array'. Got 'group'.

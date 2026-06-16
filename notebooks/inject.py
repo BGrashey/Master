@@ -38,18 +38,19 @@ chunks = [(i, min(i + chunk_size, nz)) for i in range(0, nz, chunk_size)]
 
 fov_mask = build_fov_mask(nz, ny, nx, wcs, reg_file=region)
 
+bins = [(0.05, 0.1), (0.1, 0.5), (0.5, 1), (1, 10), (10, 100), (100,1000), (1000, 2000), (2000, 10000)]
+
 positions = generate_positions(
     nz, ny, nx, wcs,
     existing_catalog=real_catalog_world,
     chunks=chunks,
-    n_per_chunk=100,
+    n_bins=len(bins),
+    n_per_bin=10,
     fov_mask=fov_mask,
  )
 
-flux_bin = (0.02, 100)  
-
 flux_cube, new_catalog = inject_sources_into_cube(
-    cube, positions, flux_bin, 1
+    cube, positions, bins,
 )
 
 with fits.open("/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits") as hdul_err:
