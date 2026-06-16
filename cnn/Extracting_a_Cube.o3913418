@@ -1,0 +1,20 @@
+Gerät: cpu
+
+[1/5] Lade Modell: lae_model.pt
+  Modell geladen.
+
+[2/5] Lade IFU-Würfel (lazy): /data/hetdex/u/bgrashey/cubes/test.zarr
+  Würfelgröße: (1036, 2478, 2260)  (Z × Y × X)
+
+[3/5] GT-Diagnose vor dem Sliding Window …
+
+── GT-Diagnose: CNN-Score direkt an bekannten Quellen ──────────────
+  WCS-Achsen erkannt: ['RA', 'DEC', 'WAVE']
+
+  Zusammenfassung: 817/4251 über Threshold (0.8)
+  Mittel=0.602  Min=0.352  Max=0.936
+  → Max. erreichbarer Recall beim Sliding Window: 19.2%
+─────────────────────────────────────────────────────────────────────
+
+[4/5] Paralleles Sliding-Window (Stride=2, Schwelle=0.8) …
+  712,172,250 Positionen werden evaluiert …

@@ -32,12 +32,12 @@ HALF_Z        = config.getint("TRAINING", "HALF_Z")
 HALF_Y        = config.getint("TRAINING", "HALF_Y")
 HALF_X        = config.getint("TRAINING", "HALF_X")
 DROPOUT       = config.getfloat("CNN", "DROPOUT")
-STRIDE        = 2
+STRIDE        = 8
 THRESHOLD     = config.getfloat("CNN", "THRESHOLD")
 DBSCAN_EPS    = 5.0
 DBSCAN_MIN    = 4
 MATCH_RADIUS  = 3.0
-MATCH_DZ      = 0.01
+MATCH_DZ      = 0.1
 TOTAL_SOURCES = None
 
 # ── PyTorch Dataset für paralleles CPU-Slicing ────────────────────────────────
