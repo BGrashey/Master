@@ -1,0 +1,364 @@
+import warnings
+import numpy as np
+import torch
+import torch.nn as nn
+from astropy.io import fits
+from astropy.wcs import WCS
+from astropy.table import Table
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+from sklearn.cluster import DBSCAN
+import configparser
+import zarr
+from torch.utils.data import Dataset, DataLoader
+
+from cnn import LAEDetector3D
+
+config = configparser.ConfigParser()
+config.read("config.ini")
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
+# ── Pfade ─────────────────────────────────────────────────────────────────────
+CUBE_FILE        = "/data/hetdex/u/bgrashey/cubes/test.zarr"
+FITS_HEADER_FILE = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
+MODEL_FILE       = "lae_model.pt"
+OUTPUT_FILE      = "/data/hetdex/u/bgrashey/data_/cnn/kandidaten_cube_search.fits"
+TRUE_CAT         = "/data/hetdex/u/bgrashey/data_/cnn/regions_tabelle.fits"
+
+# ── Parameter ─────────────────────────────────────────────────────────────────
+LYA_REST      = 1215.67
+HALF_Z        = config.getint("TRAINING", "HALF_Z")
+HALF_Y        = config.getint("TRAINING", "HALF_Y")
+HALF_X        = config.getint("TRAINING", "HALF_X")
+DROPOUT       = config.getfloat("CNN", "DROPOUT")
+STRIDE        = 2
+THRESHOLD     = config.getfloat("CNN", "THRESHOLD")
+DBSCAN_EPS    = 5.0
+DBSCAN_MIN    = 4
+MATCH_RADIUS  = 3.0
+MATCH_DZ      = 0.01
+TOTAL_SOURCES = None
+
+# ── PyTorch Dataset für paralleles CPU-Slicing ────────────────────────────────
+class SlidingWindowDataset(Dataset):
+    def __init__(self, cube_data, coords, dz, dy, dx):
+        self.cube_data = cube_data
+        self.coords = coords
+        self.dz, self.dy, self.dx = dz, dy, dx
+
+    def __len__(self):
+        return len(self.coords)
+
+    def __getitem__(self, idx):
+        z, y, x = self.coords[idx]
+        dz, dy, dx = self.dz, self.dy, self.dx
+
+        # nan_to_num hier beim Slicing, nicht beim Laden
+        sub = np.nan_to_num(self.cube_data[
+            z - dz : z + dz + 1,
+            y - dy : y + dy + 1,
+            x - dx : x + dx + 1
+        ].astype(np.float32))
+
+        return torch.tensor(sub).unsqueeze(0), torch.tensor([z, y, x])
+
+
+# ── WCS-Hilfsfunktion ─────────────────────────────────────────────────────────
+def get_wcs_axis_order(wcs: WCS):
+    axis_names = [name.upper() for name in wcs.axis_type_names]
+    print(f"  WCS-Achsen erkannt: {axis_names}")
+
+    ra_ax   = next((i for i, n in enumerate(axis_names) if "RA"   in n), None)
+    dec_ax  = next((i for i, n in enumerate(axis_names) if "DEC"  in n), None)
+    wave_ax = next(
+        (i for i, n in enumerate(axis_names)
+         if any(k in n for k in ("WAVE", "LAMBDA", "FREQ", "VELO"))),
+        None,
+    )
+
+    if None in (ra_ax, dec_ax, wave_ax):
+        raise ValueError(
+            f"Konnte RA/DEC/Wellenlängen-Achse nicht identifizieren. "
+            f"Gefundene Achsen: {axis_names}"
+        )
+    return ra_ax, dec_ax, wave_ax
+
+
+# ── GT-Diagnose ───────────────────────────────────────────────────────────────
+def diagnose_gt_scores(
+    model:     nn.Module,
+    cube_data,           # zarr-Array (lazy)
+    wcs:       WCS,
+    device:    torch.device,
+    true_cat:  str = TRUE_CAT,
+):
+    print("\n── GT-Diagnose: CNN-Score direkt an bekannten Quellen ──────────────")
+    try:
+        truth = Table.read(true_cat, format="fits")
+    except Exception as e:
+        print(f"  ✗ Konnte True-Katalog nicht laden: {e}")
+        return
+
+    ra_ax, dec_ax, wave_ax = get_wcs_axis_order(wcs)
+    max_z, max_y, max_x = cube_data.shape
+    dz, dy, dx = HALF_Z, HALF_Y, HALF_X
+
+    scores = []
+    for row in truth:
+        ra, dec, redshift = float(row["RA"]), float(row["DEC"]), float(row["REDSHIFT"])
+        wave_obs = LYA_REST * (1.0 + redshift)
+
+        world = [None, None, None]
+        world[ra_ax]   = ra
+        world[dec_ax]  = dec
+        world[wave_ax] = wave_obs
+
+        try:
+            pixel = wcs.all_world2pix([world], 0)[0]
+        except Exception:
+            continue
+
+        px = int(round(float(pixel[ra_ax])))
+        py = int(round(float(pixel[dec_ax])))
+        pz = int(round(float(pixel[wave_ax])))
+
+        if not (dz <= pz < max_z - dz and dy <= py < max_y - dy and dx <= px < max_x - dx):
+            continue
+
+        # lazy slice → nan_to_num beim Lesen
+        sub = np.nan_to_num(
+            cube_data[pz - dz : pz + dz + 1, py - dy : py + dy + 1, px - dx : px + dx + 1]
+            .astype(np.float32)
+        )
+
+        with torch.no_grad():
+            tensor = torch.tensor(sub, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device)
+            score  = torch.sigmoid(model(tensor)).item()
+
+        scores.append(score)
+
+    if scores:
+        above = sum(s >= THRESHOLD for s in scores)
+        print(f"\n  Zusammenfassung: {above}/{len(scores)} über Threshold ({THRESHOLD})")
+        print(f"  Mittel={np.mean(scores):.3f}  Min={np.min(scores):.3f}  Max={np.max(scores):.3f}")
+        print(f"  → Max. erreichbarer Recall beim Sliding Window: {above/len(scores):.1%}")
+    print("─────────────────────────────────────────────────────────────────────\n")
+
+
+# ── Paralleles Sliding Window via DataLoader ──────────────────────────────────
+def sliding_window_inference_parallel(
+    model:       nn.Module,
+    cube_data,           # zarr-Array (lazy)
+    device:      torch.device,
+    num_workers: int = 8
+) -> tuple[list, list, list, list]:
+
+    max_z, max_y, max_x = cube_data.shape
+    dz, dy, dx = HALF_Z, HALF_Y, HALF_X
+
+    z_range = range(dz, max_z - dz, STRIDE)
+    y_range = range(dy, max_y - dy, STRIDE)
+    x_range = range(dx, max_x - dx, STRIDE)
+
+    coords = [(z, y, x) for z in z_range for y in y_range for x in x_range]
+    print(f"  {len(coords):,} Positionen werden evaluiert …")
+
+    dataset    = SlidingWindowDataset(cube_data, coords, dz, dy, dx)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=16384,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True if device.type == "cuda" else False
+    )
+
+    found_z, found_y, found_x, probs_out = [], [], [], []
+    model.eval()
+
+    with torch.no_grad():
+        for i, (subs_tensor, batch_coords_tensor) in enumerate(dataloader):
+            subs_tensor = subs_tensor.to(device)
+            probs = torch.sigmoid(model(subs_tensor)).cpu().numpy().flatten()
+            batch_coords = batch_coords_tensor.numpy()
+
+            for (z, y, x), prob in zip(batch_coords, probs):
+                if prob > THRESHOLD:
+                    found_z.append(int(z))
+                    found_y.append(int(y))
+                    found_x.append(int(x))
+                    probs_out.append(float(prob))
+
+            if i % 5 == 0:
+                evaluated = min((i + 1) * dataloader.batch_size, len(coords))
+                pct = 100 * evaluated / len(coords)
+                print(f"  … {pct:5.1f}%  |  {len(found_x)} Treffer bisher", end="\r", flush=True)
+
+    print()
+    return found_z, found_y, found_x, probs_out
+
+
+# ── Non-Maximum Suppression via DBSCAN ───────────────────────────────────────
+def apply_nms(
+    found_z: list, found_y: list, found_x: list, probs: list
+) -> tuple[list, list, list, list]:
+    if not found_x:
+        print("  Keine Detektionen über dem Schwellenwert.")
+        return [], [], [], []
+
+    coords = np.array([found_z, found_y, found_x], dtype=float).T
+    labels = DBSCAN(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN).fit_predict(coords)
+
+    out_z, out_y, out_x, out_p = [], [], [], []
+
+    n_noise = int((labels == -1).sum())
+    if n_noise > 0:
+        print(f"  DBSCAN: {n_noise} Einzelpunkt-Detektionen verworfen (Rauschen).")
+
+    for cluster_id in set(labels):
+        if cluster_id == -1:
+            continue
+        mask = labels == cluster_id
+        idxs = np.where(mask)[0]
+        best = idxs[np.argmax(np.array(probs)[idxs])]
+        out_z.append(found_z[best])
+        out_y.append(found_y[best])
+        out_x.append(found_x[best])
+        out_p.append(probs[best])
+
+    print(f"  NMS: {len(found_x)} Rohdetektionen → {len(out_x)} einzigartige Kandidaten.")
+    return out_z, out_y, out_x, out_p
+
+
+# ── Qualitätsevaluation ───────────────────────────────────────────────────────
+def evaluate_candidates(
+    candidates:    Table,
+    true_cat_path: str,
+    match_radius:  float = MATCH_RADIUS,
+    match_dz:      float = MATCH_DZ,
+    total_sources: int   = None,
+) -> dict:
+    print("\n── Qualitätsevaluation ─────────────────────────────────────────────")
+
+    try:
+        truth = Table.read(true_cat_path, format="fits")
+    except Exception as e:
+        print(f"  ✗ Konnte True-Katalog nicht laden: {e}")
+        return {}
+
+    n_truth = total_sources if total_sources is not None else len(truth)
+    n_cands = len(candidates)
+
+    if n_cands == 0:
+        print("  Keine Kandidaten zum Evaluieren.")
+        return {}
+
+    cand_coords  = SkyCoord(ra=candidates["RA"]  * u.deg, dec=candidates["DEC"] * u.deg)
+    truth_coords = SkyCoord(ra=truth["RA"] * u.deg, dec=truth["DEC"] * u.deg)
+
+    matched_truth = set()
+    tp_indices    = []
+
+    for i, (cand, cz) in enumerate(zip(cand_coords, candidates["REDSHIFT"])):
+        sep   = cand.separation(truth_coords).arcsecond
+        dz    = np.abs(truth["REDSHIFT"] - float(cz))
+        match = np.where((sep <= match_radius) & (dz <= match_dz))[0]
+        if len(match) > 0:
+            best = match[np.argmin(sep[match])]
+            matched_truth.add(int(best))
+            tp_indices.append(i)
+
+    tp = len(set(tp_indices))
+    fp = n_cands - tp
+    fn = n_truth - len(matched_truth)
+
+    purity = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1     = (2 * purity * recall / (purity + recall) if (purity + recall) > 0 else 0.0)
+
+    print(f"  Matching: ≤{match_radius}\" Winkelabstand, |Δz|≤{match_dz}")
+    print(f"  Echte Quellen im Katalog : {n_truth}")
+    print(f"  Gefundene Kandidaten     : {n_cands}")
+    print()
+    print(f"  True Positives   (TP)    : {tp}")
+    print(f"  False Positives (FP)     : {fp}")
+    print(f"  False Negatives (FN)     : {fn}")
+    print()
+    print(f"  Purity     (Precision)   : {purity:.3f}   ({tp}/{tp+fp})")
+    print(f"  Completeness (Recall)    : {recall:.3f}   ({tp}/{tp+fn})")
+    print(f"  F1-Score                 : {f1:.3f}")
+    print("─────────────────────────────────────────────────────────────────")
+
+    return {"tp": tp, "fp": fp, "fn": fn, "purity": purity, "recall": recall, "f1": f1}
+
+
+# ── Haupt-Pipeline ────────────────────────────────────────────────────────────
+def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Gerät: {device}\n")
+
+    print(f"[1/5] Lade Modell: {MODEL_FILE}")
+    model = LAEDetector3D()  # ggf. anpassen
+
+    if torch.cuda.device_count() > 1:
+        print(f"  --> Nutze {torch.cuda.device_count()} GPUs parallel via DataParallel!")
+        model = nn.DataParallel(model)
+
+    model = model.to(device)
+    model.load_state_dict(torch.load(MODEL_FILE, map_location=device))
+    model.eval()
+    print("  Modell geladen.")
+
+    print(f"\n[2/5] Lade IFU-Würfel (lazy): {CUBE_FILE}")
+    z_store   = zarr.open_group(CUBE_FILE, mode='r')
+    cube_data = z_store["PRIMARY"]          # lazy — kein RAM-Verbrauch hier
+    wcs       = WCS(fits.getheader(FITS_HEADER_FILE))
+    print(f"  Würfelgröße: {cube_data.shape}  (Z × Y × X)")
+
+    print(f"\n[3/5] GT-Diagnose vor dem Sliding Window …")
+    diagnose_gt_scores(model, cube_data, wcs, device)
+
+    print(f"[4/5] Paralleles Sliding-Window (Stride={STRIDE}, Schwelle={THRESHOLD}) …")
+    found_z, found_y, found_x, probs = sliding_window_inference_parallel(
+        model, cube_data, device, num_workers=12
+    )
+    print(f"  {len(found_x)} Pixel-Treffer über Schwellenwert {THRESHOLD}.")
+
+    print("\n[4b/5] Non-Maximum Suppression via DBSCAN …")
+    found_z, found_y, found_x, probs = apply_nms(found_z, found_y, found_x, probs)
+
+    if not found_x:
+        print("✗ Keine Kandidaten nach NMS gefunden.")
+        return
+
+    ra_ax, dec_ax, wave_ax = get_wcs_axis_order(wcs)
+    res_ra, res_dec, res_redshift = [], [], []
+
+    for x, y_pix, z in zip(found_x, found_y, found_z):
+        pixel = [None, None, None]
+        pixel[ra_ax]   = x
+        pixel[dec_ax]  = y_pix
+        pixel[wave_ax] = z
+        world = wcs.all_pix2world([pixel], 0)[0]
+        res_ra.append(float(world[ra_ax]))
+        res_dec.append(float(world[dec_ax]))
+        wave_obs = float(world[wave_ax])
+        res_redshift.append(wave_obs / LYA_REST - 1.0)
+
+    t = Table(
+        [res_ra, res_dec, res_redshift, probs],
+        names=("RA", "DEC", "REDSHIFT", "Probability"),
+    )
+    t.sort("Probability")
+    t.reverse()
+    t.write(OUTPUT_FILE, format="fits", overwrite=True)
+    print(f"\n✓ {len(t)} Kandidaten gespeichert: {OUTPUT_FILE}")
+
+    print("\n[5/5] Evaluiere Kandidaten gegen Ground-Truth …")
+    evaluate_candidates(t, TRUE_CAT, MATCH_RADIUS, MATCH_DZ, TOTAL_SOURCES)
+
+    print(f"\n✓ Inference komplett abgeschlossen.")
+
+
+if __name__ == "__main__":
+    main()
