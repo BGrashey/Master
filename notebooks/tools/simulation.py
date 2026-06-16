@@ -268,6 +268,7 @@ def inject_sources_into_cube(
     existing_cube,
     positions,
     flux_bin,
+    bin_idx,
     sigma_range=(4, 15),
     sigma_lam=10,
     elipticity_range=(0.7, 1),
@@ -319,6 +320,7 @@ def inject_sources_into_cube(
         new_sources_catalog.append({
             'id':          source_counter,
             'chunk_index': pos['chunk_index'],
+            "bin_index" : bin_idx,
             'ra':          pos['ra'],
             'dec':         pos['dec'],
             'z':           pos['z'],
