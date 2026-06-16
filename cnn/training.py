@@ -707,7 +707,7 @@ def main():
 
     print("\n[4/5] Trainiere Modell")
 
-    model = LAEDetector3D().to(device)
+    model = LAEDetector3D(dropout=DROPOUT).to(device)
 
     model = train_model(
         model,

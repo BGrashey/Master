@@ -123,7 +123,7 @@ def score_catalog(input_catalog, output_path):
 
     print(f"Loading model: {MODEL_FILE}")
 
-    model = LAEDetector3D().to(device)  # Has to be changed according to the training
+    model = LAEDetector3D(dropout=DROPOUT).to(device)  # Has to be changed according to the training
 
     model.load_state_dict(
         torch.load(MODEL_FILE, map_location=device)

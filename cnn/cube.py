@@ -298,7 +298,7 @@ def main():
     print(f"Gerät: {device}\n")
 
     print(f"[1/5] Lade Modell: {MODEL_FILE}")
-    model = LAEDetector3D()  # ggf. anpassen
+    model = LAEDetector3D(dropout=DROPOUT)  # ggf. anpassen
 
     if torch.cuda.device_count() > 1:
         print(f"  --> Nutze {torch.cuda.device_count()} GPUs parallel via DataParallel!")

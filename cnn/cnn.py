@@ -85,7 +85,7 @@ class LAEDetector(nn.Module):
 
 class LAEDetector3D(nn.Module):
 
-    def __init__(self):
+    def __init__(self, dropout=0.3):
         super().__init__()
 
         self.features = nn.Sequential(
@@ -103,10 +103,10 @@ class LAEDetector3D(nn.Module):
 
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.Dropout(DROPOUT),
+            nn.Dropout(dropout),
             nn.Linear(32, 16),
             nn.GELU(),
-            nn.Dropout(DROPOUT),
+            nn.Dropout(dropout),
             nn.Linear(16, 1)
         )
 
