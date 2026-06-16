@@ -6,9 +6,9 @@ import pandas as pd
 
 flux_bins = np.linspace(1000, 9000, 11)
 
-region = "../regions/fov.reg"
+region = "/data/hetdex/u/bgrashey/regions/fov.reg"
 
-with fits.open("../cubes/ssa22_fullfp_stack.fits") as hdul:
+with fits.open("/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits") as hdul:
     wcs = WCS(hdul[0].header)
     cube = hdul[0].data.astype(np.float32)
     header = hdul[0].header
@@ -17,7 +17,7 @@ nz, ny, nx = cube.shape
     
 from astropy.table import Table
 
-fits_table = Table.read("../data_/combined_manual_vdfi_matched.fits")
+fits_table = Table.read("/data/hetdex/u/bgrashey/data_/combined_manual_vdfi_matched.fits")
 
 real_catalog_world = []
 for row in fits_table:
@@ -49,10 +49,10 @@ positions = generate_positions(
 flux_bin = (0.02, 100)  
 
 flux_cube, new_catalog = inject_sources_into_cube(
-    cube, positions, flux_bin
+    cube, positions, flux_bin, 1
 )
 
-with fits.open("../cubes/ssa22_fullfp_stack.fits") as hdul_err:
+with fits.open("/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits") as hdul_err:
     error_cube = hdul_err[1].data.astype(np.float32)
 
 mask = ~(error_cube > 0)
@@ -65,13 +65,13 @@ del error_cube, mask
 
 save_cube_fits(
     cube=flux_cube,
-    outpath="../cubes/test.fits",
+    outpath="/data/hetdex/u/bgrashey/cubes/test.fits",
     header_params=header
 )
 
 df_output = pd.DataFrame(new_catalog)
 tbl = Table.from_pandas(df_output)
-tbl.write("../data_/injected_sources.fits", overwrite=True)
+tbl.write("/data/hetdex/u/bgrashey/data_/injected_sources.fits", overwrite=True)
 
 from tools.cubes import fits_ifu_to_zarr
 
