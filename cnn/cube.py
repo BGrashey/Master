@@ -1,3 +1,4 @@
+import os
 import warnings
 import numpy as np
 import torch
@@ -7,7 +8,7 @@ from astropy.wcs import WCS
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
 import astropy.units as u
-from sklearn.cluster import DBSCAN
+from scipy.spatial import cKDTree
 import configparser
 import zarr
 from torch.utils.data import Dataset, DataLoader
@@ -27,18 +28,21 @@ OUTPUT_FILE      = "/data/hetdex/u/bgrashey/data_/cnn/kandidaten_cube_search.fit
 TRUE_CAT         = "/data/hetdex/u/bgrashey/data_/cnn/regions_tabelle.fits"
 
 # ── Parameter ─────────────────────────────────────────────────────────────────
-LYA_REST      = 1215.67
-HALF_Z        = config.getint("TRAINING", "HALF_Z")
-HALF_Y        = config.getint("TRAINING", "HALF_Y")
-HALF_X        = config.getint("TRAINING", "HALF_X")
-DROPOUT       = config.getfloat("CNN", "DROPOUT")
-STRIDE        = 8
-THRESHOLD     = config.getfloat("CNN", "THRESHOLD")
-DBSCAN_EPS    = 5.0
-DBSCAN_MIN    = 4
-MATCH_RADIUS  = 3.0
-MATCH_DZ      = 0.1
-TOTAL_SOURCES = None
+LYA_REST             = 1215.67
+HALF_Z               = config.getint("TRAINING", "HALF_Z")
+HALF_Y               = config.getint("TRAINING", "HALF_Y")
+HALF_X               = config.getint("TRAINING", "HALF_X")
+DROPOUT              = config.getfloat("CNN", "DROPOUT")
+STRIDE               = 3
+THRESHOLD            = config.getfloat("CNN", "THRESHOLD")
+SN_THRESHOLD_COARSE  = 1.   # Vorfilter — niedriger als THRESHOLD
+NMS_RADIUS           = 2 * STRIDE
+MATCH_RADIUS         = 3.0
+MATCH_DZ             = 0.1
+TOTAL_SOURCES        = None
+NUM_WORKERS          = int(os.environ.get("NSLOTS", 8)) // 2
+torch.set_num_threads(int(os.environ.get("NSLOTS", 8)) // 2)
+
 
 # ── PyTorch Dataset für paralleles CPU-Slicing ────────────────────────────────
 class SlidingWindowDataset(Dataset):
@@ -53,14 +57,11 @@ class SlidingWindowDataset(Dataset):
     def __getitem__(self, idx):
         z, y, x = self.coords[idx]
         dz, dy, dx = self.dz, self.dy, self.dx
-
-        # nan_to_num hier beim Slicing, nicht beim Laden
         sub = np.nan_to_num(self.cube_data[
             z - dz : z + dz + 1,
             y - dy : y + dy + 1,
             x - dx : x + dx + 1
         ].astype(np.float32))
-
         return torch.tensor(sub).unsqueeze(0), torch.tensor([z, y, x])
 
 
@@ -86,13 +87,7 @@ def get_wcs_axis_order(wcs: WCS):
 
 
 # ── GT-Diagnose ───────────────────────────────────────────────────────────────
-def diagnose_gt_scores(
-    model:     nn.Module,
-    cube_data,           # zarr-Array (lazy)
-    wcs:       WCS,
-    device:    torch.device,
-    true_cat:  str = TRUE_CAT,
-):
+def diagnose_gt_scores(model, cube_data, wcs, device, true_cat=TRUE_CAT):
     print("\n── GT-Diagnose: CNN-Score direkt an bekannten Quellen ──────────────")
     try:
         truth = Table.read(true_cat, format="fits")
@@ -126,10 +121,8 @@ def diagnose_gt_scores(
         if not (dz <= pz < max_z - dz and dy <= py < max_y - dy and dx <= px < max_x - dx):
             continue
 
-        # lazy slice → nan_to_num beim Lesen
         sub = np.nan_to_num(
-            cube_data[pz - dz : pz + dz + 1, py - dy : py + dy + 1, px - dx : px + dx + 1]
-            .astype(np.float32)
+            np.array(cube_data[pz-dz:pz+dz+1, py-dy:py+dy+1, px-dx:px+dx+1], dtype=np.float32)
         )
 
         with torch.no_grad():
@@ -146,14 +139,21 @@ def diagnose_gt_scores(
     print("─────────────────────────────────────────────────────────────────────\n")
 
 
-# ── Paralleles Sliding Window via DataLoader ──────────────────────────────────
-def sliding_window_inference_parallel(
-    model:       nn.Module,
-    cube_data,           # zarr-Array (lazy)
-    device:      torch.device,
-    num_workers: int = 8
-) -> tuple[list, list, list, list]:
+# ── S/N Vorfilter ─────────────────────────────────────────────────────────────
+def filter_coords_by_sn(cube_data, coords, sn_threshold):
+    print(f"  Filtere {len(coords):,} Gitterpunkte nach S/N > {sn_threshold} ...")
+    filtered = []
+    for z, y, x in coords:
+        val = float(cube_data[z, y, x])
+        if np.isfinite(val) and val > sn_threshold:
+            filtered.append((z, y, x))
+    print(f"  {len(coords):,} → {len(filtered):,} Positionen nach S/N-Filter "
+          f"({100*len(filtered)/max(len(coords),1):.1f}% behalten)")
+    return filtered
 
+
+# ── Paralleles Sliding Window via DataLoader ──────────────────────────────────
+def sliding_window_inference_parallel(model, cube_data, device, num_workers=NUM_WORKERS):
     max_z, max_y, max_x = cube_data.shape
     dz, dy, dx = HALF_Z, HALF_Y, HALF_X
 
@@ -162,7 +162,16 @@ def sliding_window_inference_parallel(
     x_range = range(dx, max_x - dx, STRIDE)
 
     coords = [(z, y, x) for z in z_range for y in y_range for x in x_range]
-    print(f"  {len(coords):,} Positionen werden evaluiert …")
+    print(f"  {len(coords):,} Gitterpunkte gesamt.")
+
+    # S/N Vorfilter — nur Gitterpunkte mit Signal weiter evaluieren
+    coords = filter_coords_by_sn(cube_data, coords, SN_THRESHOLD_COARSE)
+
+    if not coords:
+        print("  Keine Positionen nach S/N-Filter übrig.")
+        return [], [], [], []
+
+    print(f"  Starte CNN-Inferenz auf {len(coords):,} Positionen ...")
 
     dataset    = SlidingWindowDataset(cube_data, coords, dz, dy, dx)
     dataloader = DataLoader(
@@ -170,7 +179,7 @@ def sliding_window_inference_parallel(
         batch_size=16384,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True if device.type == "cuda" else False
+        pin_memory=False,
     )
 
     found_z, found_y, found_x, probs_out = [], [], [], []
@@ -198,46 +207,45 @@ def sliding_window_inference_parallel(
     return found_z, found_y, found_x, probs_out
 
 
-# ── Non-Maximum Suppression via DBSCAN ───────────────────────────────────────
-def apply_nms(
-    found_z: list, found_y: list, found_x: list, probs: list
-) -> tuple[list, list, list, list]:
+# ── Non-Maximum Suppression via KD-Tree ──────────────────────────────────────
+def apply_nms(found_z, found_y, found_x, probs):
     if not found_x:
         print("  Keine Detektionen über dem Schwellenwert.")
         return [], [], [], []
 
-    coords = np.array([found_z, found_y, found_x], dtype=float).T
-    labels = DBSCAN(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN).fit_predict(coords)
+    coords    = np.array([found_z, found_y, found_x], dtype=np.float32).T
+    probs_arr = np.array(probs, dtype=np.float32)
 
-    out_z, out_y, out_x, out_p = [], [], [], []
+    # Beste Treffer zuerst
+    order     = np.argsort(probs_arr)[::-1]
+    coords    = coords[order]
+    probs_arr = probs_arr[order]
 
-    n_noise = int((labels == -1).sum())
-    if n_noise > 0:
-        print(f"  DBSCAN: {n_noise} Einzelpunkt-Detektionen verworfen (Rauschen).")
+    kept = np.ones(len(coords), dtype=bool)
+    tree = cKDTree(coords)
 
-    for cluster_id in set(labels):
-        if cluster_id == -1:
+    for i in range(len(coords)):
+        if not kept[i]:
             continue
-        mask = labels == cluster_id
-        idxs = np.where(mask)[0]
-        best = idxs[np.argmax(np.array(probs)[idxs])]
-        out_z.append(found_z[best])
-        out_y.append(found_y[best])
-        out_x.append(found_x[best])
-        out_p.append(probs[best])
+        neighbors = tree.query_ball_point(coords[i], r=NMS_RADIUS)
+        for j in neighbors:
+            if j != i:
+                kept[j] = False
 
-    print(f"  NMS: {len(found_x)} Rohdetektionen → {len(out_x)} einzigartige Kandidaten.")
-    return out_z, out_y, out_x, out_p
+    out_idx = np.where(kept)[0]
+    print(f"  NMS: {len(found_x)} Rohdetektionen → {len(out_idx)} einzigartige Kandidaten.")
+
+    return (
+        coords[out_idx, 0].astype(int).tolist(),
+        coords[out_idx, 1].astype(int).tolist(),
+        coords[out_idx, 2].astype(int).tolist(),
+        probs_arr[out_idx].tolist(),
+    )
 
 
 # ── Qualitätsevaluation ───────────────────────────────────────────────────────
-def evaluate_candidates(
-    candidates:    Table,
-    true_cat_path: str,
-    match_radius:  float = MATCH_RADIUS,
-    match_dz:      float = MATCH_DZ,
-    total_sources: int   = None,
-) -> dict:
+def evaluate_candidates(candidates, true_cat_path, match_radius=MATCH_RADIUS,
+                        match_dz=MATCH_DZ, total_sources=None):
     print("\n── Qualitätsevaluation ─────────────────────────────────────────────")
 
     try:
@@ -295,10 +303,11 @@ def evaluate_candidates(
 # ── Haupt-Pipeline ────────────────────────────────────────────────────────────
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Gerät: {device}\n")
+    print(f"Gerät: {device}")
+    print(f"Nutze {NUM_WORKERS} Worker-Prozesse (NSLOTS={os.environ.get('NSLOTS', 'nicht gesetzt')})\n")
 
     print(f"[1/5] Lade Modell: {MODEL_FILE}")
-    model = LAEDetector3D(dropout=DROPOUT)  # ggf. anpassen
+    model = LAEDetector3D(dropout=DROPOUT)
 
     if torch.cuda.device_count() > 1:
         print(f"  --> Nutze {torch.cuda.device_count()} GPUs parallel via DataParallel!")
@@ -311,20 +320,21 @@ def main():
 
     print(f"\n[2/5] Lade IFU-Würfel (lazy): {CUBE_FILE}")
     z_store   = zarr.open_group(CUBE_FILE, mode='r')
-    cube_data = z_store["PRIMARY"]          # lazy — kein RAM-Verbrauch hier
+    cube_data = z_store["PRIMARY"]
     wcs       = WCS(fits.getheader(FITS_HEADER_FILE))
     print(f"  Würfelgröße: {cube_data.shape}  (Z × Y × X)")
 
     print(f"\n[3/5] GT-Diagnose vor dem Sliding Window …")
     diagnose_gt_scores(model, cube_data, wcs, device)
 
-    print(f"[4/5] Paralleles Sliding-Window (Stride={STRIDE}, Schwelle={THRESHOLD}) …")
+    print(f"[4/5] Sliding-Window mit S/N-Vorfilter (Stride={STRIDE}, "
+          f"S/N>{SN_THRESHOLD_COARSE}, CNN-Schwelle={THRESHOLD}) …")
     found_z, found_y, found_x, probs = sliding_window_inference_parallel(
-        model, cube_data, device, num_workers=12
+        model, cube_data, device, num_workers=NUM_WORKERS
     )
-    print(f"  {len(found_x)} Pixel-Treffer über Schwellenwert {THRESHOLD}.")
+    print(f"  {len(found_x)} Pixel-Treffer über CNN-Schwellenwert {THRESHOLD}.")
 
-    print("\n[4b/5] Non-Maximum Suppression via DBSCAN …")
+    print(f"\n[4b/5] Non-Maximum Suppression via KD-Tree (Radius={NMS_RADIUS}px) …")
     found_z, found_y, found_x, probs = apply_nms(found_z, found_y, found_x, probs)
 
     if not found_x:

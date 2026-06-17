@@ -1,0 +1,17 @@
+Device: cpu
+
+Loading model: lae_model.pt
+Loading cube: /data/hetdex/u/bgrashey/cubes/sn_cube_raw.fits
+Traceback (most recent call last):
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/scoring.py", line 211, in <module>
+    score_catalog(
+    ~~~~~~~~~~~~~^
+        input_catalog=INPUT_CATALOG,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        output_path=OUTPUT_CATALOG,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/scoring.py", line 105, in score_catalog
+    cube_data = np.array(data_hdu.data, dtype=np.float32)
+numpy._core._exceptions._ArrayMemoryError: Unable to allocate 21.6 GiB for an array with shape (1036, 2478, 2260) and data type float32

@@ -1,0 +1,13 @@
+Device: cpu
+
+Loading model: lae_model.pt
+Loading cube (lazy): /data/hetdex/u/bgrashey/cubes/test.zarr
+Cube shape: (1036, 2478, 2260)
+WCS axis order: ra_ax=0, dec_ax=1, wave_ax=2
+WCS axis names: ['RA', 'DEC', 'Wave']
+
+Scoring catalog: /data/hetdex/u/bgrashey/data_/mawatari.fits
+Progress: 8/168 (5%)Progress: 16/168 (10%)Progress: 24/168 (14%)Progress: 32/168 (19%)Progress: 40/168 (24%)Progress: 48/168 (29%)Progress: 56/168 (33%)Progress: 64/168 (38%)Progress: 72/168 (43%)Progress: 80/168 (48%)Progress: 88/168 (52%)Progress: 96/168 (57%)Progress: 104/168 (62%)Progress: 112/168 (67%)Progress: 120/168 (71%)Progress: 128/168 (76%)Progress: 136/168 (81%)Progress: 144/168 (86%)Progress: 152/168 (90%)Progress: 160/168 (95%)Progress: 168/168 (100%)                                                                                
+Evaluated : 168/168
+Skipped   : 0
+Saved to  : /data/hetdex/u/bgrashey/data_/mawatari_cnn_scored.fits

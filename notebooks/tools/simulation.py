@@ -155,7 +155,7 @@ def generate_positions(
     chunks,
     n_per_bin=10,
     n_bins=10,
-    matching_radius_arcsec=2.0,
+    matching_radius_arcsec=10.0,
     fov_mask=None,
 ):
     ra_ax = dec_ax = wave_ax = None
@@ -260,7 +260,7 @@ def inject_sources_into_cube(
     existing_cube,
     positions,
     flux_bins,
-    sigma_range=(4, 15),
+    sigma_range=(1, 10),
     sigma_lam=10,
     elipticity_range=(0.7, 1),
     theta_range=(0, 180),

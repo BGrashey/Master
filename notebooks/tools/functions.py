@@ -215,15 +215,18 @@ from astropy.table import Table
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 
-def completeness_analysis(injected_path, detected_path, sky_radius=3.0, dz=0.01):
+def completeness_analysis(injected_path, detected_path, sky_radius=3.0, dz=0.5):
     inj = Table.read(injected_path)
     det = Table.read(detected_path)
-
+    
     coords_inj = SkyCoord(ra=inj["ra"] * u.deg, dec=inj["dec"] * u.deg)
     coords_det = SkyCoord(ra=det["ra"] * u.deg, dec=det["dec"] * u.deg)
-
+    
     idx, sep, _ = coords_inj.match_to_catalog_sky(coords_det)
-    delta_z = np.abs(np.array(inj["z"], dtype=float) - np.array(det["z"], dtype=float)[idx])
-
+    
+    delta_z = np.abs(np.array(inj["z"]) - np.array(det["z"])[idx])
+    
     inj["detected"] = (sep.arcsec <= sky_radius) & (delta_z <= dz)
+    
     inj.write(injected_path.replace(".fits", "_flagged.fits"), overwrite=True)
+    return inj

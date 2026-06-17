@@ -38,7 +38,14 @@ chunks = [(i, min(i + chunk_size, nz)) for i in range(0, nz, chunk_size)]
 
 fov_mask = build_fov_mask(nz, ny, nx, wcs, reg_file=region)
 
-bins = [(0.05, 0.1), (0.1, 0.5), (0.5, 1), (1, 10), (10, 100), (100,1000), (1000, 2000), (2000, 10000)]
+bins = [
+    (0.5,  1.0),    # ~29-28 mag — unter Detektionslimit
+    (1.0,  2.0),    # ~28-27 mag — Detektionslimit
+    (2.0,  5.0),    # ~27-26 mag — schwach
+    (5.0,  10.0),   # ~26-25 mag — mittel
+    (10.0, 50.0),   # ~25-24 mag — hell
+    (50.0, 200.0),  # ~24-23 mag — sehr hell
+]
 
 positions = generate_positions(
     nz, ny, nx, wcs,
@@ -66,14 +73,14 @@ del error_cube, mask
 
 save_cube_fits(
     cube=flux_cube,
-    outpath="/data/hetdex/u/bgrashey/cubes/test.fits",
+    outpath="/data/hetdex/u/bgrashey/cubes/test_.fits",
     header_params=header
 )
 
 df_output = pd.DataFrame(new_catalog)
 tbl = Table.from_pandas(df_output)
-tbl.write("/data/hetdex/u/bgrashey/data_/injected_sources.fits", overwrite=True)
+tbl.write("/data/hetdex/u/bgrashey/data_/injected_sources_real.fits", overwrite=True)
 
 from tools.cubes import fits_ifu_to_zarr
 
-fits_ifu_to_zarr("/data/hetdex/u/bgrashey/cubes/test.fits", "/data/hetdex/u/bgrashey/cubes/test.zarr")
+fits_ifu_to_zarr("/data/hetdex/u/bgrashey/cubes/test_.fits", "/data/hetdex/u/bgrashey/cubes/injected.zarr")

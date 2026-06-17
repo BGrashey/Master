@@ -312,9 +312,14 @@ def catalog_to_wcs_table(cat: dict, wcs_header=None) -> Table:
 
     if wcs_header is not None:
         wcs = wcs_header if isinstance(wcs_header, WCS) else WCS(wcs_header)
-        x, y, z = np.asarray(tab["x_center"]), np.asarray(tab["y_center"]), np.asarray(tab["z_center"])
-        world = wcs.all_pix2world(x, y, z, 0)
-        tab["ra"] = world[0]
-        tab["dec"] = world[1]
-        tab["z"] = world[2]
+        world = wcs.all_pix2world(
+            tab["z_center"],  # Array-Achse 2 = RA  → FITS-Achse 1 ✓
+            tab["y_center"],  # Array-Achse 1 = DEC → FITS-Achse 2 ✓
+            tab["x_center"],  # Array-Achse 0 = WAVE→ FITS-Achse 3 ✓
+            0
+        )
+        tab["ra"]     = world[0]
+        tab["dec"]    = world[1]
+        tab["z_wave"] = world[2]
+        tab["z"]      = (3470.0 + (tab["x_center"] - 1) * 2.0) / 1215.67 - 1.0
     return tab

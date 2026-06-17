@@ -1,0 +1,8 @@
+Chunk 0 (0-10) liegt komplett im Randbereich, wird uebersprungen.
+Chunk 102 (1020-1030) liegt komplett im Randbereich, wird uebersprungen.
+Chunk 103 (1030-1036) liegt komplett im Randbereich, wird uebersprungen.
+Cube saved to /data/hetdex/u/bgrashey/cubes/test_.fits
+  PRIMARY: (1036, 2478, 2260), chunks=(100, 128, 128)
+/
+└── PRIMARY (1036, 2478, 2260) float32
+
