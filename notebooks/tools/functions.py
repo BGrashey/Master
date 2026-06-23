@@ -6,6 +6,13 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.table import Table
 
+
+import numpy as np
+from astropy.table import Table
+from astropy.coordinates import SkyCoord, search_around_sky
+from astropy import units as u
+
+
 def plot_cutout_grid(
     catalog,
     cube_file,
@@ -215,18 +222,67 @@ from astropy.table import Table
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 
-def completeness_analysis(injected_path, detected_path, sky_radius=3.0, dz=0.5):
+def completeness_analysis(injected_path, detected_path, sky_radius=3.0, dz=0.5, 
+                         inj_col_ra="ra", det_col_ra="ra",
+                          inj_col_dec="dec", det_col_dec="dec",
+                         inj_col_z="z", det_col_z="z"):
     inj = Table.read(injected_path)
     det = Table.read(detected_path)
     
-    coords_inj = SkyCoord(ra=inj["ra"] * u.deg, dec=inj["dec"] * u.deg)
-    coords_det = SkyCoord(ra=det["ra"] * u.deg, dec=det["dec"] * u.deg)
+    coords_inj = SkyCoord(ra=inj[inj_col_ra].data * u.deg, dec=inj[inj_col_dec].data * u.deg)
+    coords_det = SkyCoord(ra=det[det_col_ra].data * u.deg, dec=det[det_col_dec].data * u.deg)
     
     idx, sep, _ = coords_inj.match_to_catalog_sky(coords_det)
     
-    delta_z = np.abs(np.array(inj["z"]) - np.array(det["z"])[idx])
+    delta_z = np.abs(np.array(inj[inj_col_z]) - np.array(det[det_col_z])[idx])
     
     inj["detected"] = (sep.arcsec <= sky_radius) & (delta_z <= dz)
     
     inj.write(injected_path.replace(".fits", "_flagged.fits"), overwrite=True)
     return inj
+
+
+#-------------------
+# Neue Funktion um Kataloge zu matchen
+#-------------------
+
+ 
+COLNAMES = {
+    "ra":  ["ra", "RA", "Ra", "RAJ2000", "ra_vdfi"],
+    "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi"],
+    "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex"],
+}
+ 
+def _find_col(table, aliases):
+    for name in aliases:
+        if name in table.colnames:
+            return name
+    raise KeyError(f"Keine Spalte gefunden. Erwartet: {aliases} | Vorhanden: {table.colnames}")
+ 
+def _load(path):
+    fmt = "fits" if path.endswith((".fits", ".fit")) else "csv"
+    return Table.read(path, format=fmt)
+ 
+def crossmatch(path1, path2, ang_radius_arcsec=5.0, dz_max=0.1):
+    """
+    Matched zwei Kataloge per Winkelabgleich + Δz-Schnitt.
+    Gibt Katalog 1 mit Spalte MATCHED (bool) zurück.
+    """
+    t1, t2 = _load(path1), _load(path2)
+    z1 = np.array(t1[_find_col(t1, COLNAMES["z"])])
+    z2 = np.array(t2[_find_col(t2, COLNAMES["z"])])
+ 
+    cat1 = SkyCoord(ra=t1[_find_col(t1, COLNAMES["ra"])].data * u.deg,
+                    dec=t1[_find_col(t1, COLNAMES["dec"])].data * u.deg)
+    cat2 = SkyCoord(ra=t2[_find_col(t2, COLNAMES["ra"])].data * u.deg,
+                    dec=t2[_find_col(t2, COLNAMES["dec"])].data * u.deg)
+ 
+    i1, i2, _, _ = search_around_sky(cat1, cat2, ang_radius_arcsec * u.arcsec)
+ 
+    # Δz-Schnitt
+    mask = np.abs(z1[i1] - z2[i2]) < dz_max
+    matched_idx = np.unique(i1[mask])
+ 
+    t1["MATCHED"] = np.zeros(len(t1), dtype=bool)
+    t1["MATCHED"][matched_idx] = True
+    return t1

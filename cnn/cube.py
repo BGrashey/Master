@@ -21,7 +21,7 @@ config.read("config.ini")
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # ── Pfade ─────────────────────────────────────────────────────────────────────
-CUBE_FILE        = "/data/hetdex/u/bgrashey/cubes/test.zarr"
+CUBE_FILE        = "/data/hetdex/u/bgrashey/cubes/injected.zarr"
 FITS_HEADER_FILE = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
 MODEL_FILE       = "lae_model.pt"
 OUTPUT_FILE      = "/data/hetdex/u/bgrashey/data_/cnn/kandidaten_cube_search.fits"

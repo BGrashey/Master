@@ -33,19 +33,13 @@ fov = build_fov_mask(
         reg_file=region
     )
 
-chunk_size = 10
+chunk_size = 100
 chunks = [(i, min(i + chunk_size, nz)) for i in range(0, nz, chunk_size)]
 
 fov_mask = build_fov_mask(nz, ny, nx, wcs, reg_file=region)
 
-bins = [
-    (0.5,  1.0),    # ~29-28 mag — unter Detektionslimit
-    (1.0,  2.0),    # ~28-27 mag — Detektionslimit
-    (2.0,  5.0),    # ~27-26 mag — schwach
-    (5.0,  10.0),   # ~26-25 mag — mittel
-    (10.0, 50.0),   # ~25-24 mag — hell
-    (50.0, 200.0),  # ~24-23 mag — sehr hell
-]
+bins = [(0.001, 0.005), (0.005, 0.01), (0.1, 0.2), (0.2, 0.5), (0.5, 1.),
+       (1., 2.), (2., 5.), (5., 10.), (10., 100.)]
 
 positions = generate_positions(
     nz, ny, nx, wcs,
