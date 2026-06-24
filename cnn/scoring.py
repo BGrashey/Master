@@ -27,9 +27,9 @@ MODEL_FILE   = "lae_model.pt"
 INPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/hetdex_ssa22.fits"
 OUTPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/hetdex_sources_cnnscored.fits"
 
-COL_RA       = "RA"
-COL_DEC      = "DEC"
-COL_REDSHIFT = "z_hetdex"
+COL_RA       = "ra"
+COL_DEC      = "dec"
+COL_REDSHIFT = "redshift"
 COL_OUTPUT   = "CNN_prob"
 
 LYA_REST = 1215.67

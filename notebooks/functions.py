@@ -28,6 +28,7 @@ def plot_cutout_grid(
     vmin_fixed      = -2.0,
     vmax_fixed      =  1.0,
     cmap            = "inferno",
+    label = None,                    # Spaltenname: dtype = bool
     # Titel
     title           = None,
 ):
@@ -191,6 +192,10 @@ def plot_cutout_grid(
             vmax = vmax_fixed if use_fixed_stretch else np.nanpercentile(cutout, 99)
             ax.imshow(cutout, origin="lower", cmap=cmap,
                       vmin=vmin, vmax=vmax, interpolation="nearest")
+            if label and cat[label][i]:
+                circle = plt.Circle((cutout_size/2, cutout_size/2), radius=3,
+                         color="lime", fill=False, linewidth=1.2)
+                ax.add_patch(circle)
 
         seg_str  = f"{int(seg)}" if seg is not None else "–"
         obs_wave = rest_wavelength * (1.0 + z)

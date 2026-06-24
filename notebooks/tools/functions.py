@@ -5,22 +5,33 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.table import Table
+import warnings
 
 
 import numpy as np
 from astropy.table import Table
 from astropy.coordinates import SkyCoord, search_around_sky
 from astropy import units as u
+from regions import Regions
+
+
+COLNAMES = {
+    "ra":  ["ra", "RA", "Ra", "RAJ2000", "ra_vdfi", "ra_hetdex"],
+    "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi", "dec_hetdex"],
+    "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex", "redshift"],
+}
+ 
+def _find_col(table, aliases):
+    for name in aliases:
+        if name in table.colnames:
+            return name
+    raise KeyError(f"Keine Spalte gefunden. Erwartet: {aliases} | Vorhanden: {table.colnames}")
 
 
 def plot_cutout_grid(
     catalog,
     cube_file,
     output_file,
-    # Spaltennamen
-    col_ra          = "RA",
-    col_dec         = "DEC",
-    col_z           = "z",
     col_seg         = None,          # Optional, falls nicht vorhanden
     # Filter
     filters         = None,          # Liste von Dicts wie CATALOG_FILTERS
@@ -28,6 +39,7 @@ def plot_cutout_grid(
     cutout_size     = 20,
     cols_in_grid    = 5,
     num_cutouts     = 25,
+    num_wave_slices = 0,
     rest_wavelength = 1215.67,
     # Stretch
     use_fixed_stretch = True,
@@ -36,6 +48,7 @@ def plot_cutout_grid(
     cmap            = "inferno",
     # Titel
     title           = None,
+    label           = None,         # Spalte im Katalog mit bool werten
 ):
     """
     Erstellt ein Cutout-Grid aus einem Katalog und einem FITS-Cube.
@@ -80,7 +93,14 @@ def plot_cutout_grid(
             return None
         x0, x1 = int(round(x)) - half, int(round(x)) - half + size
         y0, y1 = int(round(y)) - half, int(round(y)) - half + size
-        slice_img = cube_data[z_slice, :, :]
+        if num_wave_slices >= 1:
+            slice_img = cube_data[(z_slice-num_wave_slices):(z_slice+num_wave_slices), :, :]
+        else:
+            slice_img = cube_data[z_slice:z_slice+1, :, :]
+        #slice_img = np.nanmean(slice_img, axis=0)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning, message="Mean of empty slice")
+            slice_img = np.nanmean(slice_img, axis=0)
         cutout = np.full((size, size), np.nan)
         sx0, sx1 = max(x0, 0), min(x1, nx)
         sy0, sy1 = max(y0, 0), min(y1, ny)
@@ -121,6 +141,10 @@ def plot_cutout_grid(
     print(f"  {len(cat)} Objekte geladen.")"""
 
     cat = catalog[:num_cutouts]
+    
+    col_ra = _find_col(cat, COLNAMES["ra"])
+    col_dec = _find_col(cat, COLNAMES["dec"])
+    col_z = _find_col(cat, COLNAMES["z"])
 
     # Filter anwenden
     if filters:
@@ -188,6 +212,10 @@ def plot_cutout_grid(
             vmax = vmax_fixed if use_fixed_stretch else np.nanpercentile(cutout, 99)
             ax.imshow(cutout, origin="lower", cmap=cmap,
                       vmin=vmin, vmax=vmax, interpolation="nearest")
+            if label and cat[label][i]:
+                circle = plt.Circle((cutout_size/2, cutout_size/2), radius=3,
+                         color="lime", fill=False, linewidth=1.2)
+                ax.add_patch(circle)
 
         seg_str  = f"{int(seg)}" if seg is not None else "–"
         obs_wave = rest_wavelength * (1.0 + z)
@@ -210,8 +238,8 @@ def plot_cutout_grid(
         color="white", fontsize=10, y=1.01,
     )
     plt.tight_layout(pad=0.5)
-    #plt.savefig(output_file, dpi=300, bbox_inches="tight",
-    #            facecolor=fig.get_facecolor())
+    plt.savefig(output_file, dpi=300, bbox_inches="tight",
+                facecolor=fig.get_facecolor())
     plt.show()
     plt.close(fig)
     print(f"  Gespeichert: {output_file}")
@@ -247,23 +275,11 @@ def completeness_analysis(injected_path, detected_path, sky_radius=3.0, dz=0.5,
 #-------------------
 
  
-COLNAMES = {
-    "ra":  ["ra", "RA", "Ra", "RAJ2000", "ra_vdfi"],
-    "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi"],
-    "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex"],
-}
- 
-def _find_col(table, aliases):
-    for name in aliases:
-        if name in table.colnames:
-            return name
-    raise KeyError(f"Keine Spalte gefunden. Erwartet: {aliases} | Vorhanden: {table.colnames}")
- 
 def _load(path):
     fmt = "fits" if path.endswith((".fits", ".fit")) else "csv"
     return Table.read(path, format=fmt)
  
-def crossmatch(path1, path2, ang_radius_arcsec=5.0, dz_max=0.1):
+def crossmatch(path1, path2, rad=2.5, dz_max=0.1):
     """
     Matched zwei Kataloge per Winkelabgleich + Δz-Schnitt.
     Gibt Katalog 1 mit Spalte MATCHED (bool) zurück.
@@ -277,7 +293,7 @@ def crossmatch(path1, path2, ang_radius_arcsec=5.0, dz_max=0.1):
     cat2 = SkyCoord(ra=t2[_find_col(t2, COLNAMES["ra"])].data * u.deg,
                     dec=t2[_find_col(t2, COLNAMES["dec"])].data * u.deg)
  
-    i1, i2, _, _ = search_around_sky(cat1, cat2, ang_radius_arcsec * u.arcsec)
+    i1, i2, _, _ = search_around_sky(cat1, cat2, rad * u.arcsec)
  
     # Δz-Schnitt
     mask = np.abs(z1[i1] - z2[i2]) < dz_max
@@ -286,3 +302,50 @@ def crossmatch(path1, path2, ang_radius_arcsec=5.0, dz_max=0.1):
     t1["MATCHED"] = np.zeros(len(t1), dtype=bool)
     t1["MATCHED"][matched_idx] = True
     return t1
+
+
+def match_survey_footprint(catalog: str,
+                           region="/data/hetdex/u/bgrashey/regions/fov.reg",
+                           header="/data/hetdex/u/bgrashey/cubes/test.fits",
+                          ):
+    
+    catalog = Table.read(catalog)
+    
+    with fits.open(header) as f:
+        wcs = WCS(f[0].header).celestial
+        
+        
+    ra = _find_col(catalog, COLNAMES["ra"])
+    dec = _find_col(catalog, COLNAMES["dec"])
+    z = _find_col(catalog, COLNAMES["z"])
+    
+    coords = SkyCoord(ra=catalog[ra].data * u.deg,
+                      dec=catalog[dec].data * u.deg,
+                      frame="fk5"
+                     )
+    
+    regions = Regions.read(region, format="ds9")
+    
+    ii = np.zeros(len(coords), dtype=bool)
+    ee = np.zeros(len(coords), dtype=bool)
+    
+    for r in regions:
+        if r.meta.get("include") == 1:
+            ii |= r.contains(coords, wcs)
+        else:
+            ee |= ~r.contains(coords, wcs)
+ 
+    min_z = 4584 / 1215.67 - 1
+    max_z = 5382 / 1215.67 - 1
+    
+    mask_z = (catalog[z] > min_z) & (catalog[z] < max_z)  
+    
+    mask = mask_z * ~ee * ii
+    
+    catalog = catalog[mask]
+    
+    return catalog
+    
+    
+
+
