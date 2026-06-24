@@ -9,8 +9,10 @@ from astropy.table import Table
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from scipy.spatial import cKDTree
+from scipy.ndimage import maximum_filter
 import configparser
 import zarr
+import psutil
 from torch.utils.data import Dataset, DataLoader
 
 from cnn import LAEDetector3D
@@ -35,7 +37,8 @@ HALF_X               = config.getint("TRAINING", "HALF_X")
 DROPOUT              = config.getfloat("CNN", "DROPOUT")
 STRIDE               = 3
 THRESHOLD            = config.getfloat("CNN", "THRESHOLD")
-SN_THRESHOLD_COARSE  = 1.   # Vorfilter — niedriger als THRESHOLD
+SN_THRESHOLD_COARSE  = 1.0   # Vorfilter — niedriger als THRESHOLD
+PEAK_FOOTPRINT       = 2     # Radius für lokalen Peak-Filter (in Pixeln)
 NMS_RADIUS           = 2 * STRIDE
 MATCH_RADIUS         = 3.0
 MATCH_DZ             = 0.1
@@ -48,7 +51,7 @@ torch.set_num_threads(int(os.environ.get("NSLOTS", 8)) // 2)
 class SlidingWindowDataset(Dataset):
     def __init__(self, cube_data, coords, dz, dy, dx):
         self.cube_data = cube_data
-        self.coords = coords
+        self.coords    = coords
         self.dz, self.dy, self.dx = dz, dy, dx
 
     def __len__(self):
@@ -63,6 +66,31 @@ class SlidingWindowDataset(Dataset):
             x - dx : x + dx + 1
         ].astype(np.float32))
         return torch.tensor(sub).unsqueeze(0), torch.tensor([z, y, x])
+
+
+# ── RAM-Check und Cube-Loading ────────────────────────────────────────────────
+def load_cube(z_store):
+    """
+    Lädt den Würfel vollständig in den RAM wenn genug Platz vorhanden ist,
+    sonst lazy via Zarr. Gibt (cube_data, in_ram) zurück.
+    """
+    zarr_array  = z_store["PRIMARY"]
+    cube_gb     = zarr_array.nbytes / 1e9
+    # Zarr legt beim np.array()-Aufruf kurzzeitig eine Kopie an → 2× Cube-Größe nötig
+    needed_gb   = cube_gb * 2.2
+    available_gb = psutil.virtual_memory().available / 1e9
+
+    print(f"  Würfelgröße   : {cube_gb:.1f} GB")
+    print(f"  Benötigt (Peak): {needed_gb:.1f} GB  |  Verfügbar: {available_gb:.1f} GB")
+
+    if needed_gb < available_gb * 0.85:
+        print("  → Lade Würfel vollständig in RAM ...")
+        cube_data = np.array(zarr_array, dtype=np.float32)
+        print("  ✓ Würfel im RAM.")
+        return cube_data, True
+    else:
+        print("  ⚠ Zu wenig RAM — bleibe bei lazy Zarr-Loading.")
+        return zarr_array, False
 
 
 # ── WCS-Hilfsfunktion ─────────────────────────────────────────────────────────
@@ -139,16 +167,38 @@ def diagnose_gt_scores(model, cube_data, wcs, device, true_cat=TRUE_CAT):
     print("─────────────────────────────────────────────────────────────────────\n")
 
 
-# ── S/N Vorfilter ─────────────────────────────────────────────────────────────
-def filter_coords_by_sn(cube_data, coords, sn_threshold):
-    print(f"  Filtere {len(coords):,} Gitterpunkte nach S/N > {sn_threshold} ...")
+# ── Kombinierter S/N + lokaler Peak-Vorfilter ─────────────────────────────────
+def filter_coords_by_peak(cube_data, coords, sn_threshold, footprint_radius=PEAK_FOOTPRINT):
+    """
+    Behält nur Gitterpunkte, die:
+      1. Über dem S/N-Schwellenwert liegen, UND
+      2. Lokales Maximum in ihrer Nachbarschaft sind.
+
+    Das ist physikalisch sinnvoll, weil LAEs punktförmige Quellen sind —
+    eine echte Emission hat immer einen Peak-Pixel. Alle umliegenden Pixel
+    derselben Quelle werden so bereits hier verworfen, bevor das CNN läuft.
+    """
+    print(f"  Berechne lokale Maxima (Footprint-Radius={footprint_radius}px) ...")
+
+    # Cube als numpy-Array für maximum_filter (funktioniert auch mit zarr, aber langsamer)
+    cube_np = cube_data if isinstance(cube_data, np.ndarray) else np.array(cube_data, dtype=np.float32)
+
+    # NaN → -inf damit NaN-Pixel niemals als lokales Maximum gelten
+    cube_finite = np.where(np.isfinite(cube_np), cube_np, -np.inf)
+
+    footprint_size = footprint_radius * 2 + 1
+    local_max = maximum_filter(cube_finite, size=footprint_size, mode="constant", cval=-np.inf)
+
+    print(f"  Filtere {len(coords):,} Gitterpunkte (S/N>{sn_threshold} + lokaler Peak) ...")
+
     filtered = []
     for z, y, x in coords:
-        val = float(cube_data[z, y, x])
-        if np.isfinite(val) and val > sn_threshold:
+        val = cube_finite[z, y, x]
+        if val > sn_threshold and val == local_max[z, y, x]:
             filtered.append((z, y, x))
-    print(f"  {len(coords):,} → {len(filtered):,} Positionen nach S/N-Filter "
-          f"({100*len(filtered)/max(len(coords),1):.1f}% behalten)")
+
+    print(f"  {len(coords):,} → {len(filtered):,} Positionen nach Peak-Filter "
+          f"({100 * len(filtered) / max(len(coords), 1):.1f}% behalten)")
     return filtered
 
 
@@ -164,11 +214,11 @@ def sliding_window_inference_parallel(model, cube_data, device, num_workers=NUM_
     coords = [(z, y, x) for z in z_range for y in y_range for x in x_range]
     print(f"  {len(coords):,} Gitterpunkte gesamt.")
 
-    # S/N Vorfilter — nur Gitterpunkte mit Signal weiter evaluieren
-    coords = filter_coords_by_sn(cube_data, coords, SN_THRESHOLD_COARSE)
+    # Kombinierter S/N + Peak-Vorfilter
+    coords = filter_coords_by_peak(cube_data, coords, SN_THRESHOLD_COARSE, PEAK_FOOTPRINT)
 
     if not coords:
-        print("  Keine Positionen nach S/N-Filter übrig.")
+        print("  Keine Positionen nach Peak-Filter übrig.")
         return [], [], [], []
 
     print(f"  Starte CNN-Inferenz auf {len(coords):,} Positionen ...")
@@ -216,7 +266,6 @@ def apply_nms(found_z, found_y, found_x, probs):
     coords    = np.array([found_z, found_y, found_x], dtype=np.float32).T
     probs_arr = np.array(probs, dtype=np.float32)
 
-    # Beste Treffer zuerst
     order     = np.argsort(probs_arr)[::-1]
     coords    = coords[order]
     probs_arr = probs_arr[order]
@@ -318,17 +367,19 @@ def main():
     model.eval()
     print("  Modell geladen.")
 
-    print(f"\n[2/5] Lade IFU-Würfel (lazy): {CUBE_FILE}")
-    z_store   = zarr.open_group(CUBE_FILE, mode='r')
-    cube_data = z_store["PRIMARY"]
-    wcs       = WCS(fits.getheader(FITS_HEADER_FILE))
-    print(f"  Würfelgröße: {cube_data.shape}  (Z × Y × X)")
+    print(f"\n[2/5] Lade IFU-Würfel: {CUBE_FILE}")
+    z_store          = zarr.open_group(CUBE_FILE, mode='r')
+    cube_data, in_ram = load_cube(z_store)
+    wcs              = WCS(fits.getheader(FITS_HEADER_FILE))
+    print(f"  Würfelgröße: {cube_data.shape}  (Z × Y × X)"
+          f"  [{'RAM' if in_ram else 'lazy Zarr'}]")
 
     print(f"\n[3/5] GT-Diagnose vor dem Sliding Window …")
     diagnose_gt_scores(model, cube_data, wcs, device)
 
-    print(f"[4/5] Sliding-Window mit S/N-Vorfilter (Stride={STRIDE}, "
-          f"S/N>{SN_THRESHOLD_COARSE}, CNN-Schwelle={THRESHOLD}) …")
+    print(f"[4/5] Sliding-Window mit Peak-Vorfilter (Stride={STRIDE}, "
+          f"S/N>{SN_THRESHOLD_COARSE}, Peak-Radius={PEAK_FOOTPRINT}px, "
+          f"CNN-Schwelle={THRESHOLD}) …")
     found_z, found_y, found_x, probs = sliding_window_inference_parallel(
         model, cube_data, device, num_workers=NUM_WORKERS
     )
