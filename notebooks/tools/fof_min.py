@@ -45,9 +45,10 @@ def _prefix_offsets(chunks_1d: Tuple[int, ...]) -> np.ndarray:
     off[1:] = np.cumsum(np.array(chunks_1d, dtype=np.int64))
     return off
 
-def _chunk_origin_from_offsets(offx, offy, offz, block_id: Tuple[int, int, int]) -> Tuple[int, int, int]:
+def _chunk_origin_from_offsets(off0, off1, off2, block_id: Tuple[int, int, int]) -> Tuple[int, int, int]:
     i, j, k = block_id
-    return int(offx[i]), int(offy[j]), int(offz[k])
+    # Returns (origin_axis0, origin_axis1, origin_axis2) = (wave_off, dec_off, ra_off)
+    return int(off0[i]), int(off1[j]), int(off2[k])
 
 def _linear_chunk_id(block_id: Tuple[int, int, int], numblocks: Tuple[int, int, int]) -> int:
     return int(np.ravel_multi_index(block_id, numblocks))
@@ -80,7 +81,7 @@ def _map_ids_with_mapping(ids: np.ndarray, keys: np.ndarray, values: np.ndarray)
     return out
 
 # ==========================================
-# 2. CORE FOF PIPELINE (MINIMAL CONFIG)
+# 2. CORE FOF PIPELINE
 # ==========================================
 @dataclass
 class ChunkResult:
@@ -114,45 +115,63 @@ def _fof_labels_for_positions(coords_local: np.ndarray, linking_length: float, k
     return labels
 
 def _extract_face_shell(coords_local: np.ndarray, point_labels: np.ndarray, chunk_shape: Tuple[int, int, int], origin: Tuple[int, int, int], shell: int) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
-    faces = {f: (np.empty((0, 3), dtype=np.int32), np.empty((0,), dtype=np.int32)) for f in ("x0", "x1", "y0", "y1", "z0", "z1")}
+    faces = {f: (np.empty((0, 3), dtype=np.int32), np.empty((0,), dtype=np.int32)) for f in ("ax0_lo", "ax0_hi", "ax1_lo", "ax1_hi", "ax2_lo", "ax2_hi")}
     if coords_local.shape[0] == 0: return faces
     sh = int(shell)
-    sx, sy, sz = chunk_shape
-    x, y, z = coords_local[:, 0], coords_local[:, 1], coords_local[:, 2]
-    masks = {"x0": x < sh, "x1": x >= (sx - sh), "y0": y < sh, "y1": y >= (sy - sh), "z0": z < sh, "z1": z >= (sz - sh)}
-    ox, oy, oz = origin
+    s0, s1, s2 = chunk_shape
+    c0, c1, c2 = coords_local[:, 0], coords_local[:, 1], coords_local[:, 2]
+    masks = {
+        "ax0_lo": c0 < sh,        "ax0_hi": c0 >= (s0 - sh),
+        "ax1_lo": c1 < sh,        "ax1_hi": c1 >= (s1 - sh),
+        "ax2_lo": c2 < sh,        "ax2_hi": c2 >= (s2 - sh),
+    }
+    o0, o1, o2 = origin
     for key, m in masks.items():
         c = coords_local[m].astype(np.int32, copy=False)
         if c.shape[0] == 0: continue
         g = c.copy()
-        g[:, 0] += ox; g[:, 1] += oy; g[:, 2] += oz
+        g[:, 0] += o0; g[:, 1] += o1; g[:, 2] += o2
         faces[key] = (g, point_labels[m].astype(np.int32, copy=False))
     return faces
 
 def _catalog_for_chunk_points(coords_local: np.ndarray, point_labels: np.ndarray, origin: Tuple[int, int, int]) -> Dict[str, np.ndarray]:
+    """
+    Array layout: axis0 = wave (spectral), axis1 = dec, axis2 = ra
+    coords_local[:,0] = wave pixel
+    coords_local[:,1] = dec  pixel
+    coords_local[:,2] = ra   pixel
+    origin = (o_wave, o_dec, o_ra)
+    """
     npts = coords_local.shape[0]
+    empty = lambda: np.empty((0,), dtype=np.int64)
     if npts == 0:
         return {
-            "local_label": np.empty((0,), dtype=np.int64), "n_spax": np.empty((0,), dtype=np.int64),
-            "xmin": np.empty((0,), dtype=np.int64), "xmax": np.empty((0,), dtype=np.int64),
-            "ymin": np.empty((0,), dtype=np.int64), "ymax": np.empty((0,), dtype=np.int64),
-            "zmin": np.empty((0,), dtype=np.int64), "zmax": np.empty((0,), dtype=np.int64),
+            "local_label": empty(), "n_spax": empty(),
+            "wave_min": empty(), "wave_max": empty(),
+            "dec_min":  empty(), "dec_max":  empty(),
+            "ra_min":   empty(), "ra_max":   empty(),
         }
+
     n_local = int(point_labels.max())
     group_idx = point_labels.astype(np.int64) - 1
-    oz, oy, ox = origin
-    gz = coords_local[:, 0].astype(np.int64) + oz
-    gy = coords_local[:, 1].astype(np.int64) + oy
-    gx = coords_local[:, 2].astype(np.int64) + ox
+
+    o_wave, o_dec, o_ra = origin
+
+    g_wave = coords_local[:, 0].astype(np.int64) + o_wave
+    g_dec  = coords_local[:, 1].astype(np.int64) + o_dec
+    g_ra   = coords_local[:, 2].astype(np.int64) + o_ra
 
     n_spax = np.bincount(group_idx, minlength=n_local).astype(np.int64)
-    xmin, xmax = _group_minmax(gx, group_idx, n_local)
-    ymin, ymax = _group_minmax(gy, group_idx, n_local)
-    zmin, zmax = _group_minmax(gz, group_idx, n_local)
+    wave_min, wave_max = _group_minmax(g_wave, group_idx, n_local)
+    dec_min,  dec_max  = _group_minmax(g_dec,  group_idx, n_local)
+    ra_min,   ra_max   = _group_minmax(g_ra,   group_idx, n_local)
 
     return {
-        "local_label": np.arange(n_local, dtype=np.int64) + 1, "n_spax": n_spax,
-        "xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax, "zmin": zmin, "zmax": zmax
+        "local_label": np.arange(n_local, dtype=np.int64) + 1,
+        "n_spax":   n_spax,
+        "wave_min": wave_min, "wave_max": wave_max,
+        "dec_min":  dec_min,  "dec_max":  dec_max,
+        "ra_min":   ra_min,   "ra_max":   ra_max,
     }
 
 def _process_one_chunk(block_bool: np.ndarray, origin: Tuple[int, int, int], chunk_id: int, linking_length: float, shell: int, kdtree_workers: int = -1) -> ChunkResult:
@@ -242,49 +261,63 @@ def _finalize_chunk_catalog(chunk_res: ChunkResult, keys: np.ndarray, values: np
     return out
 
 def _merge_catalog_dicts(cat_list: List[Dict[str, np.ndarray]]) -> Dict[str, np.ndarray]:
+    fields = ["id", "n_spax", "wave_min", "wave_max", "dec_min", "dec_max", "ra_min", "ra_max"]
     ids = np.concatenate([c["id"] for c in cat_list if c["id"].size], axis=0)
-    fields = ["id", "n_spax", "xmin", "xmax", "ymin", "ymax", "zmin", "zmax"]
     if ids.size == 0: return {k: np.empty((0,), dtype=np.int64) for k in fields}
-    
-    n_spax = np.concatenate([c["n_spax"] for c in cat_list if c["id"].size])
-    xmin = np.concatenate([c["xmin"] for c in cat_list if c["id"].size])
-    xmax = np.concatenate([c["xmax"] for c in cat_list if c["id"].size])
-    ymin = np.concatenate([c["ymin"] for c in cat_list if c["id"].size])
-    ymax = np.concatenate([c["ymax"] for c in cat_list if c["id"].size])
-    zmin = np.concatenate([c["zmin"] for c in cat_list if c["id"].size])
-    zmax = np.concatenate([c["zmax"] for c in cat_list if c["id"].size])
+
+    n_spax   = np.concatenate([c["n_spax"]   for c in cat_list if c["id"].size])
+    wave_min = np.concatenate([c["wave_min"] for c in cat_list if c["id"].size])
+    wave_max = np.concatenate([c["wave_max"] for c in cat_list if c["id"].size])
+    dec_min  = np.concatenate([c["dec_min"]  for c in cat_list if c["id"].size])
+    dec_max  = np.concatenate([c["dec_max"]  for c in cat_list if c["id"].size])
+    ra_min   = np.concatenate([c["ra_min"]   for c in cat_list if c["id"].size])
+    ra_max   = np.concatenate([c["ra_max"]   for c in cat_list if c["id"].size])
 
     order = np.argsort(ids, kind="mergesort")
     ids_s = ids[order]
     starts = np.flatnonzero(np.r_[True, ids_s[1:] != ids_s[:-1]])
 
     return {
-        "id": ids_s[starts],
-        "n_spax": np.add.reduceat(n_spax[order], starts),
-        "xmin": np.minimum.reduceat(xmin[order], starts), "xmax": np.maximum.reduceat(xmax[order], starts),
-        "ymin": np.minimum.reduceat(ymin[order], starts), "ymax": np.maximum.reduceat(ymax[order], starts),
-        "zmin": np.minimum.reduceat(zmin[order], starts), "zmax": np.maximum.reduceat(zmax[order], starts),
+        "id":       ids_s[starts],
+        "n_spax":   np.add.reduceat(n_spax[order],   starts),
+        "wave_min": np.minimum.reduceat(wave_min[order], starts),
+        "wave_max": np.maximum.reduceat(wave_max[order], starts),
+        "dec_min":  np.minimum.reduceat(dec_min[order],  starts),
+        "dec_max":  np.maximum.reduceat(dec_max[order],  starts),
+        "ra_min":   np.minimum.reduceat(ra_min[order],   starts),
+        "ra_max":   np.maximum.reduceat(ra_max[order],   starts),
     }
 
 # ==========================================
 # 3. PUBLIC API & WCS EVALUATION
 # ==========================================
 def fof_minimal_zarr(arr_bool, linking_length: float, kdtree_workers: int = -1):
+    """
+    arr_bool shape: (n_wave, n_dec, n_ra)  — C-order, axis0=wave, axis1=dec, axis2=ra
+    """
     darr = da.asarray(arr_bool)
     shell = int(math.ceil(float(linking_length)))
     chunks, numblocks = darr.chunks, darr.numblocks
-    offx, offy, offz = _prefix_offsets(chunks[0]), _prefix_offsets(chunks[1]), _prefix_offsets(chunks[2])
+    # off0=wave, off1=dec, off2=ra
+    off0 = _prefix_offsets(chunks[0])
+    off1 = _prefix_offsets(chunks[1])
+    off2 = _prefix_offsets(chunks[2])
     delayed_blocks_bool = darr.to_delayed().ravel()
     block_ids = list(product(range(numblocks[0]), range(numblocks[1]), range(numblocks[2])))
 
     chunk_results = []
     for idx, bid in enumerate(block_ids):
-        origin = _chunk_origin_from_offsets(offx, offy, offz, bid)
+        origin = _chunk_origin_from_offsets(off0, off1, off2, bid)
         cid = _linear_chunk_id(bid, numblocks)
         chunk_results.append(dask.delayed(_process_one_chunk)(delayed_blocks_bool[idx], origin, cid, linking_length, shell, kdtree_workers))
 
     idx_of = {bid: i for i, bid in enumerate(block_ids)}
-    neighbor_dirs, dir_faces = [(1, 0, 0), (0, 1, 0), (0, 0, 1)], {(1, 0, 0): ("x1", "x0"), (0, 1, 0): ("y1", "y0"), (0, 0, 1): ("z1", "z0")}
+    neighbor_dirs = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
+    dir_faces = {
+        (1, 0, 0): ("ax0_hi", "ax0_lo"),
+        (0, 1, 0): ("ax1_hi", "ax1_lo"),
+        (0, 0, 1): ("ax2_hi", "ax2_lo"),
+    }
     edge_tasks = []
     for bid in block_ids:
         for d in neighbor_dirs:
@@ -300,26 +333,40 @@ def fof_minimal_zarr(arr_bool, linking_length: float, kdtree_workers: int = -1):
     return catalog
 
 def catalog_to_wcs_table(cat: dict, wcs_header=None) -> Table:
-    if "id" in cat and cat["id"].size: order = np.argsort(cat["id"])
-    else: order = slice(None)
+    """
+    Converts the raw pixel catalog to an astropy Table with WCS-derived coordinates.
+
+    Catalog pixel convention (C-order array):
+      wave_min/max  -> axis 0  (slowest) -> FITS axis 3 (WAVE/LAMBDA)
+      dec_min/max   -> axis 1            -> FITS axis 2 (DEC)
+      ra_min/max    -> axis 2  (fastest) -> FITS axis 1 (RA)
+
+    all_pix2world expects FITS pixel order: (ra_pix, dec_pix, wave_pix, origin)
+    """
+    if "id" in cat and cat["id"].size:
+        order = np.argsort(cat["id"])
+    else:
+        order = slice(None)
+
     tab = Table()
-    for key, val in cat.items(): tab[key] = val[order]
-    
-    # Geometrische Zentren berechnen
-    tab["x_center"] = (tab["xmin"] + tab["xmax"]) / 2.0
-    tab["y_center"] = (tab["ymin"] + tab["ymax"]) / 2.0
-    tab["z_center"] = (tab["zmin"] + tab["zmax"]) / 2.0
+    for key, val in cat.items():
+        tab[key] = val[order]
+
+    tab["wave_center"] = (tab["wave_min"] + tab["wave_max"]) / 2.0
+    tab["dec_center"]  = (tab["dec_min"]  + tab["dec_max"])  / 2.0
+    tab["ra_center"]   = (tab["ra_min"]   + tab["ra_max"])   / 2.0
 
     if wcs_header is not None:
         wcs = wcs_header if isinstance(wcs_header, WCS) else WCS(wcs_header)
         world = wcs.all_pix2world(
-            tab["z_center"],  # Array-Achse 2 = RA  → FITS-Achse 1 ✓
-            tab["y_center"],  # Array-Achse 1 = DEC → FITS-Achse 2 ✓
-            tab["x_center"],  # Array-Achse 0 = WAVE→ FITS-Achse 3 ✓
-            0
+            tab["ra_center"],    # FITS axis 1 -> RA
+            tab["dec_center"],   # FITS axis 2 -> DEC
+            tab["wave_center"],  # FITS axis 3 -> WAVE
+            0                    # 0-based pixel origin
         )
         tab["ra"]     = world[0]
         tab["dec"]    = world[1]
-        tab["z_wave"] = world[2]
-        tab["z"]      = (3470.0 + (tab["x_center"] - 1) * 2.0) / 1215.67 - 1.0
+        tab["z_wave"] = world[2]  # wavelength in Angstrom (or WCS unit)
+        tab["z"]      = tab["z_wave"] / 1215.67 - 1.0  # Lyman-alpha redshift
+
     return tab
