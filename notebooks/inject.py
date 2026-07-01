@@ -38,8 +38,15 @@ chunks = [(i, min(i + chunk_size, nz)) for i in range(0, nz, chunk_size)]
 
 fov_mask = build_fov_mask(nz, ny, nx, wcs, reg_file=region)
 
-bins = [(0.001, 0.005), (0.005, 0.01), (0.1, 0.2), (0.2, 0.5), (0.5, 1.),
-       (1., 2.), (2., 5.), (5., 10.), (10., 100.)]
+bins = [
+    (1.000e-06, 1.000e-05),
+    (1.000e-05, 1.000e-04),
+    (1.000e-04, 1.000e-03),
+    (1.000e-03, 1.000e-02),
+    (1.000e-02, 1.000e-01),
+    (1.000e-01, 1.000e+00),
+    (1.000e+00, 1.000e+01),
+]
 
 positions = generate_positions(
     nz, ny, nx, wcs,
@@ -73,8 +80,8 @@ save_cube_fits(
 
 df_output = pd.DataFrame(new_catalog)
 tbl = Table.from_pandas(df_output)
-tbl.write("/data/hetdex/u/bgrashey/data_/injected_sources_real.fits", overwrite=True)
+tbl.write("/data/hetdex/u/bgrashey/data_/injected_sources_log_bins.fits", overwrite=True)
 
 from tools.cubes import fits_ifu_to_zarr
 
-fits_ifu_to_zarr("/data/hetdex/u/bgrashey/cubes/test_.fits", "/data/hetdex/u/bgrashey/cubes/injected.zarr")
+fits_ifu_to_zarr("/data/hetdex/u/bgrashey/cubes/test_.fits", "/data/hetdex/u/bgrashey/cubes/injected_new.zarr")

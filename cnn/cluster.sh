@@ -5,7 +5,7 @@
 #$ -m ea
 #$ -M B.Grashey@campus.lmu.de
 #$ -pe smp 4
-#$ -l h_vmem=13G
+#$ -l h_vmem=20G
 #$ -l h_rt=72:00:00
 
 

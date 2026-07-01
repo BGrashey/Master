@@ -1,13 +1,0 @@
-Device: cpu
-
-Loading model: lae_model.pt
-Loading cube (lazy): /data/hetdex/u/bgrashey/cubes/ssa22_fullfp_sig_filter.zarr
-Cube shape: (1036, 2478, 2260)
-WCS axis order: ra_ax=0, dec_ax=1, wave_ax=2
-WCS axis names: ['RA', 'DEC', 'Wave']
-
-Scoring catalog: /data/hetdex/u/bgrashey/data_/hetdex_ssa22.fits
-Progress: 17/345 (5%)Progress: 34/345 (10%)Progress: 51/345 (15%)Progress: 68/345 (20%)Progress: 85/345 (25%)Progress: 102/345 (30%)Progress: 119/345 (34%)Progress: 136/345 (39%)Progress: 153/345 (44%)Progress: 170/345 (49%)Progress: 187/345 (54%)Progress: 204/345 (59%)Progress: 221/345 (64%)Progress: 238/345 (69%)Progress: 255/345 (74%)Progress: 272/345 (79%)Progress: 289/345 (84%)Progress: 306/345 (89%)Progress: 323/345 (94%)Progress: 340/345 (99%)                                                                                
-Evaluated : 345/345
-Skipped   : 0
-Saved to  : /data/hetdex/u/bgrashey/data_/hetdex_sources_cnnscored.fits

@@ -6,10 +6,10 @@ from astropy.io import fits
 
 from tools.fof_min import fof_minimal_zarr, catalog_to_wcs_table
 
-sn_cube_path = "/data/hetdex/u/bgrashey/cubes/injected.zarr"
+sn_cube_path = "/data/hetdex/u/bgrashey/cubes/injected_new.zarr"
 fits_header_path = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
-output_catalog_path = "/data/hetdex/u/bgrashey/cubes/gefundene_quellen_174_linking_length.fits"
-sn_threshold = 2
+output_catalog_path = "/data/hetdex/u/bgrashey/cubes/gefundene_quellen_3_05.fits"
+sn_threshold = 0.5
 linking_length = 3.
 
 
