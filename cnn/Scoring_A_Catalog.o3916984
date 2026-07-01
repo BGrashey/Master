@@ -1,0 +1,18 @@
+Device: cpu
+
+Loading model: lae_model.pt
+Loading cube (lazy): /data/hetdex/u/bgrashey/cubes/injected_new.zarr
+Traceback (most recent call last):
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/scoring.py", line 205, in <module>
+    score_catalog(
+    ~~~~~~~~~~~~~^
+        input_catalog=INPUT_CATALOG,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        output_path=OUTPUT_CATALOG,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/scoring.py", line 105, in score_catalog
+    print(f"Cube shape: {cube_data.shape}")
+                         ^^^^^^^^^^^^^^^
+AttributeError: 'Group' object has no attribute 'shape'

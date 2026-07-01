@@ -18,18 +18,18 @@ config.read("config.ini")
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
-#ZARR_FILE    = "/data/hetdex/u/bgrashey/cubes/injected.zarr"
-ZARR_FILE = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_sig_filter.zarr"
+ZARR_FILE    = "/data/hetdex/u/bgrashey/cubes/injected_new.zarr"
+#ZARR_FILE = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_sig_filter.zarr"
 FITS_HEADER  = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
 MODEL_FILE   = "lae_model.pt"
 
-#INPUT_CATALOG  = "/data/hetdex/u/bgrashey/data_/injected_sources_real.fits"
-INPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/hetdex_ssa22.fits"
-OUTPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/hetdex_sources_cnnscored.fits"
+INPUT_CATALOG  = "/data/hetdex/u/bgrashey/data_/injected_sources_log_bins.fits"
+#INPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/hetdex_ssa22.fits"
+OUTPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/cnn_scored_sources.fits"
 
 COL_RA       = "ra"
 COL_DEC      = "dec"
-COL_REDSHIFT = "redshift"
+COL_REDSHIFT = "z"
 COL_OUTPUT   = "CNN_prob"
 
 LYA_REST = 1215.67
@@ -100,7 +100,8 @@ def score_catalog(input_catalog, output_path):
     model.eval()
 
     print(f"Loading cube (lazy): {ZARR_FILE}")
-    cube_data   = zarr.open(ZARR_FILE, mode='r')
+    cube_   = zarr.open(ZARR_FILE, mode='r')
+    cube_data = cube_["PRIMARY"]
     wcs       = WCS(fits.getheader(FITS_HEADER))
     print(f"Cube shape: {cube_data.shape}")
 

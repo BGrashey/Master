@@ -36,7 +36,7 @@ HALF_X               = config.getint("TRAINING", "HALF_X")
 DROPOUT              = config.getfloat("CNN", "DROPOUT")
 STRIDE               = config.getint("CNN", "STRIDE", fallback=5)   # ← war 3, jetzt 5
 THRESHOLD            = config.getfloat("CNN", "THRESHOLD")
-SN_THRESHOLD_COARSE  = 1.0
+SN_THRESHOLD_COARSE  = 0.5
 NMS_RADIUS           = 2 * STRIDE
 MATCH_RADIUS         = 3.0
 MATCH_DZ             = 0.1
