@@ -381,13 +381,13 @@ def v_max(flux, flux_lim, redshift, area=1000*u.deg**2, survey_min=2.7, survey_m
 
 
 def luminosity_function(bins, completeness, flux_lim, catalog,
-                        area=1000*u.deg**2, survey_min=2.7, survey_max=3.4):
+                        area=0.07056104808102222*u.deg**2, survey_min=2.77, survey_max=3.43):
     
     cat = Table.read(catalog)
 
     phi = []
 
-    col_z = _find_col(cat, "redshift")
+    col_z = _find_col(cat, "z")
     col_flux = _find_col(cat, "flux")
 
     for bin, comp in zip(bins, completeness):

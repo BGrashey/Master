@@ -1,4 +1,4 @@
-STRIDE=2  |  torch-Threads=4  |  DataLoader-Workers=2
+STRIDE=3  |  torch-Threads=4  |  DataLoader-Workers=2
 Gerät: cpu
 Nutze 2 DataLoader-Worker, 4 torch-Threads
 
@@ -23,20 +23,8 @@ Nutze 2 DataLoader-Worker, 4 torch-Threads
   → Max. erreichbarer Recall beim Sliding Window: 98.3%
 ─────────────────────────────────────────────────────────────────────
 
-[4/5] Sliding-Window (Stride=2, S/N>0.5, CNN-Schwelle=0.4) …
-MemoryError
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/data/hetdex/u/bgrashey/git/Master/cnn/cube.py", line 481, in <module>
-    main()
-    ~~~~^^
-  File "/data/hetdex/u/bgrashey/git/Master/cnn/cube.py", line 439, in main
-    found_z, found_y, found_x, probs = sliding_window_inference_parallel(
-                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
-        model, cube_data, device, num_workers=NUM_WORKERS
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-MemoryError
+[4/5] Sliding-Window (Stride=3, S/N>0.5, CNN-Schwelle=0.4) …
+  211,099,500 Gitterpunkte auf Stride-Gitter.
+  S/N>0.5: 211,099,500 → 45,155,121 Punkte
+  Peak-Filter   : 45,155,121 → 4,963,597 Punkte (11.0% behalten)
+  Starte CNN-Inferenz auf 4,963,597 Positionen ...

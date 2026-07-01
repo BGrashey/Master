@@ -1,0 +1,31 @@
+STRIDE=4  |  torch-Threads=4  |  DataLoader-Workers=2
+Gerät: cpu
+Nutze 2 DataLoader-Worker, 4 torch-Threads
+
+[1/5] Lade Modell: lae_model.pt
+  Modell geladen.
+
+[2/5] Lade IFU-Würfel: /data/hetdex/u/bgrashey/cubes/injected_new.zarr
+  Würfelgröße   : 23.2 GB
+  Benötigt (Peak): 51.1 GB  |  Verfügbar: 362.6 GB
+  → Lade Würfel chunk-weise in RAM (float32, kein Zwischenpuffer) ...
+    …   5.0%    …  10.0%    …  14.9%    …  19.9%    …  24.9%    …  29.9%    …  34.8%    …  39.8%    …  44.8%    …  49.8%    …  54.8%    …  59.7%    …  64.7%    …  69.7%    …  74.7%    …  79.7%    …  84.6%    …  89.6%    …  94.6%
+  ✓ Würfel im RAM.
+  Würfelgröße: (1036, 2478, 2260)  (Z × Y × X)  [RAM]
+
+[3/5] GT-Diagnose vor dem Sliding Window …
+
+── GT-Diagnose: CNN-Score direkt an bekannten Quellen ──────────────
+  WCS-Achsen erkannt: ['RA', 'DEC', 'WAVE']
+
+  Zusammenfassung: 4177/4251 über Threshold (0.4)
+  Mittel=0.603  Min=0.352  Max=0.936
+  → Max. erreichbarer Recall beim Sliding Window: 98.3%
+─────────────────────────────────────────────────────────────────────
+
+[4/5] Sliding-Window (Stride=4, S/N>0.5, CNN-Schwelle=0.4) …
+  89,274,347 Gitterpunkte auf Stride-Gitter.
+  S/N>0.5: 89,274,347 → 19,071,534 Punkte
+  Peak-Filter   : 19,071,534 → 2,122,023 Punkte (11.1% behalten)
+  Starte CNN-Inferenz auf 2,122,023 Positionen ...
+  …   0.0%  |  486 Treffer bisher  …   0.5%  |  9731 Treffer bisher  …   1.0%  |  18532 Treffer bisher  …   1.5%  |  27244 Treffer bisher  …   2.0%  |  35957 Treffer bisher  …   2.4%  |  44661 Treffer bisher  …   2.9%  |  53622 Treffer bisher  …   3.4%  |  62844 Treffer bisher  …   3.9%  |  71820 Treffer bisher  …   4.4%  |  80607 Treffer bisher  …   4.8%  |  89312 Treffer bisher  …   5.3%  |  98011 Treffer bisher  …   5.8%  |  106698 Treffer bisher  …   6.3%  |  115452 Treffer bisher  …   6.8%  |  124245 Treffer bisher  …   7.3%  |  133163 Treffer bisher  …   7.7%  |  142108 Treffer bisher  …   8.2%  |  150844 Treffer bisher  …   8.7%  |  159578 Treffer bisher  …   9.2%  |  168340 Treffer bisher  …   9.7%  |  177048 Treffer bisher  …  10.2%  |  185736 Treffer bisher  …  10.6%  |  194457 Treffer bisher  …  11.1%  |  203356 Treffer bisher  …  11.6%  |  212201 Treffer bisher  …  12.1%  |  220971 Treffer bisher  …  12.6%  |  229909 Treffer bisher  …  13.1%  |  238829 Treffer bisher  …  13.5%  |  247757 Treffer bisher  …  14.0%  |  256547 Treffer bisher  …  14.5%  |  265292 Treffer bisher  …  15.0%  |  274206 Treffer bisher  …  15.5%  |  282995 Treffer bisher  …  15.9%  |  291910 Treffer bisher  …  16.4%  |  300716 Treffer bisher  …  16.9%  |  309609 Treffer bisher  …  17.4%  |  318642 Treffer bisher  …  17.9%  |  327964 Treffer bisher  …  18.4%  |  336919 Treffer bisher  …  18.8%  |  345749 Treffer bisher  …  19.3%  |  354626 Treffer bisher  …  19.8%  |  363418 Treffer bisher  …  20.3%  |  372245 Treffer bisher  …  20.8%  |  381023 Treffer bisher  …  21.3%  |  389826 Treffer bisher  …  21.7%  |  398880 Treffer bisher  …  22.2%  |  407696 Treffer bisher  …  22.7%  |  416623 Treffer bisher  …  23.2%  |  425760 Treffer bisher  …  23.7%  |  434730 Treffer bisher  …  24.2%  |  443598 Treffer bisher  …  24.6%  |  452598 Treffer bisher  …  25.1%  |  461677 Treffer bisher  …  25.6%  |  470451 Treffer bisher  …  26.1%  |  479272 Treffer bisher  …  26.6%  |  488213 Treffer bisher  …  27.0%  |  497000 Treffer bisher  …  27.5%  |  505809 Treffer bisher  …  28.0%  |  514743 Treffer bisher  …  28.5%  |  523665 Treffer bisher  …  29.0%  |  532575 Treffer bisher  …  29.5%  |  541466 Treffer bisher  …  29.9%  |  550296 Treffer bisher  …  30.4%  |  559033 Treffer bisher  …  30.9%  |  567795 Treffer bisher  …  31.4%  |  576550 Treffer bisher  …  31.9%  |  585325 Treffer bisher  …  32.4%  |  594128 Treffer bisher  …  32.8%  |  603003 Treffer bisher  …  33.3%  |  611786 Treffer bisher  …  33.8%  |  620689 Treffer bisher  …  34.3%  |  629591 Treffer bisher  …  34.8%  |  638357 Treffer bisher  …  35.3%  |  647090 Treffer bisher  …  35.7%  |  655916 Treffer bisher  …  36.2%  |  664822 Treffer bisher  …  36.7%  |  673583 Treffer bisher  …  37.2%  |  682355 Treffer bisher  …  37.7%  |  691158 Treffer bisher  …  38.1%  |  700017 Treffer bisher  …  38.6%  |  708742 Treffer bisher  …  39.1%  |  717641 Treffer bisher  …  39.6%  |  726475 Treffer bisher  …  40.1%  |  735280 Treffer bisher  …  40.6%  |  744250 Treffer bisher  …  41.0%  |  753029 Treffer bisher  …  41.5%  |  762109 Treffer bisher  …  42.0%  |  771042 Treffer bisher  …  42.5%  |  780031 Treffer bisher  …  43.0%  |  788933 Treffer bisher  …  43.5%  |  797902 Treffer bisher  …  43.9%  |  806844 Treffer bisher
