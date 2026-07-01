@@ -23,7 +23,7 @@ COLNAMES = {
     "ra":  ["ra", "RA", "Ra", "RAJ2000", "ra_vdfi", "ra_hetdex"],
     "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi", "dec_hetdex"],
     "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex", "redshift"],
-    "flux":    ["flux", "Flux", "FLUX", "flux_lya"]
+    "flux":    ["flux", "Flux", "FLUX", "flux_lya"],
 }
  
 def _find_col(table, aliases):
@@ -387,8 +387,8 @@ def luminosity_function(bins, completeness, flux_lim, catalog,
 
     phi = []
 
-    col_z = _find_col(cat, "z")
-    col_flux = _find_col(cat, "flux")
+    col_z = _find_col(cat, COLNAMES["z"])
+    col_flux = _find_col(cat, COLNAMES["flux"])
 
     for bin, comp in zip(bins, completeness):
         mask = (cat[col_flux] > bin[0]) & (cat[col_flux] < bin[1])
