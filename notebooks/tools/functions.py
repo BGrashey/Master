@@ -14,11 +14,16 @@ from astropy.coordinates import SkyCoord, search_around_sky
 from astropy import units as u
 from regions import Regions
 
+from astropy.cosmology import Planck18 as cosmo
+from astropy.cosmology import z_at_value
+
+
 
 COLNAMES = {
     "ra":  ["ra", "RA", "Ra", "RAJ2000", "ra_vdfi", "ra_hetdex"],
     "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi", "dec_hetdex"],
     "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex", "redshift"],
+    "flux":    ["flux", "Flux", "FLUX", "flux_lya"]
 }
  
 def _find_col(table, aliases):
@@ -349,3 +354,54 @@ def match_survey_footprint(catalog: str,
     
 
 
+def z_max_fluxlim(flux_lim, flux, redshift, survey_max=3.4):
+    if flux < flux_lim:
+        z = redshift
+    else:
+        dl = np.sqrt(flux / flux_lim) * cosmo.luminosity_distance(redshift)
+        z = z_at_value(cosmo.luminosity_distance, dl)
+    
+    return np.minimum(z, survey_max)
+
+
+
+def v_max(flux, flux_lim, redshift, area=1000*u.deg**2, survey_min=2.7, survey_max=3.4):
+    z_min = survey_min
+    z_max = z_max_fluxlim(flux_lim, flux, redshift, survey_max)
+    area_sr = area.to(u.sr).value
+    
+    v_max = cosmo.comoving_volume(z_max)
+    v_min = cosmo.comoving_volume(z_min)
+
+    volume = (v_max - v_min) * (area_sr / (4 * np.pi))
+
+    return volume
+
+
+
+
+def luminosity_function(bins, completeness, flux_lim, catalog,
+                        area=1000*u.deg**2, survey_min=2.7, survey_max=3.4):
+    
+    cat = Table.read(catalog)
+
+    phi = []
+
+    col_z = _find_col(cat, "redshift")
+    col_flux = _find_col(cat, "flux")
+
+    for bin, comp in zip(bins, completeness):
+        mask = (cat[col_flux] > bin[0]) & (cat[col_flux] < bin[1])
+        cat_ = cat[mask]
+        V = []
+        for i in range(len(cat_)):
+            f = cat_[col_flux][i]
+            z = cat_[col_z][i]
+            vol = v_max(f, flux_lim, z, area, survey_min, survey_max)
+            V.append(vol)
+        
+        V = np.array(V)
+        
+        Phi = 1 / comp * np.sum(1 / V) / (bin[1] - bin[0])
+
+        phi.append(Phi)
