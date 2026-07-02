@@ -8,9 +8,9 @@ from tools.fof_min import fof_minimal_zarr, catalog_to_wcs_table
 
 sn_cube_path = "/data/hetdex/u/bgrashey/cubes/injected_new.zarr"
 fits_header_path = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
-output_catalog_path = "/data/hetdex/u/bgrashey/cubes/gefundene_quellen_177_05.fits"
-sn_threshold = 0.5
-linking_length = 1.77
+output_catalog_path = "/data/hetdex/u/bgrashey/cubes/gefundene_quellen_3_15.fits"
+sn_threshold = 1.5
+linking_length = 3
 
 
 sn_cube = da.from_zarr(sn_cube_path, component="PRIMARY")
