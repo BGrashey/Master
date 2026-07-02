@@ -1,0 +1,12 @@
+STRIDE=4  |  torch-Threads=4  |  DataLoader-Workers=2
+Gerät: cpu
+Nutze 2 DataLoader-Worker, 4 torch-Threads
+
+[1/5] Lade Modell: lae_model.pt
+  Modell geladen.
+
+[2/5] Lade IFU-Würfel: /data/hetdex/u/bgrashey/cubes/injected_new.zarr
+  Würfelgröße   : 23.2 GB
+  Benötigt (Peak): 51.1 GB  |  Verfügbar: 691.5 GB
+  → Lade Würfel chunk-weise in RAM (float32, kein Zwischenpuffer) ...
+    …   5.0%    …  10.0%    …  14.9%    …  19.9%    …  24.9%    …  29.9%    …  34.8%    …  39.8%    …  44.8%    …  49.8%    …  54.8%    …  59.7%    …  64.7%
