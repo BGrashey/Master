@@ -17,6 +17,8 @@ from regions import Regions
 from astropy.cosmology import Planck18 as cosmo
 from astropy.cosmology import z_at_value
 
+from scipy.special import erf
+from scipy.optimize import curve_fit
 
 
 COLNAMES = {
@@ -433,3 +435,18 @@ def luminosity_function(flux_lim, catalog,
         phi.append(Phi)
 
     return np.array(bin_centers), np.array(phi)
+
+
+
+def completeness_function(x, A, B, C, D):
+    return A * erf(B * (x - C )) + D
+
+def fit_erf(x_data, y_data):
+    popt, _ = curve_fit(completeness_function,
+                           x_data, y_data,
+                           p0=[1, 1, 0, 0])
+    
+    return popt
+
+def completeness_model(x, popt):
+    return completeness_function(x, *popt)
