@@ -24,6 +24,8 @@ COLNAMES = {
     "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi", "dec_hetdex"],
     "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex", "redshift"],
     "flux":    ["flux", "Flux", "FLUX", "flux_lya"],
+    "luminosity": ["lum", "luminosity", "luminosity_lae"],
+    "completeness": ["completeness", "comp"],
 }
  
 def _find_col(table, aliases):
@@ -380,28 +382,54 @@ def v_max(flux, flux_lim, redshift, area=1000*u.deg**2, survey_min=2.7, survey_m
 
 
 
-def luminosity_function(bins, completeness, flux_lim, catalog,
-                        area=0.07056104808102222*u.deg**2, survey_min=2.77, survey_max=3.43):
+def luminosity_function(flux_lim, catalog,
+                        num_bins=10,
+                        area=0.07056104808102222*u.deg**2,
+                        survey_min=2.77,
+                        survey_max=3.43):
     
     cat = Table.read(catalog)
 
     phi = []
+    bin_centers = []
 
     col_z = _find_col(cat, COLNAMES["z"])
     col_flux = _find_col(cat, COLNAMES["flux"])
+    col_lum = _find_col(cat, COLNAMES["luminosity"])
+    col_comp = _find_col(cat, COLNAMES["completeness"])
 
-    for bin, comp in zip(bins, completeness):
-        mask = (cat[col_flux] > bin[0]) & (cat[col_flux] < bin[1])
+    lum_low = np.log10(np.min(cat[col_lum]))
+    lum_high = np.log10(np.max(cat[col_lum]))
+
+    bin_edges = np.logspace(lum_low, lum_high, num_bins+1)
+
+    for i in range(num_bins):
+        lum_low = bin_edges[i]
+        lum_high = bin_edges[i+1]
+        
+        delta_log_lum = np.log10(lum_high) - np.log10(lum_low)
+        
+        bin_center = 10**( (np.log10(lum_low) + np.log10(lum_high)) / 2.0 )
+        bin_centers.append(bin_center)
+
+        mask = (cat[col_lum] >= lum_low) & (cat[col_lum] < lum_high)
         cat_ = cat[mask]
+
+        completeness = []
         V = []
-        for i in range(len(cat_)):
-            f = cat_[col_flux][i]
-            z = cat_[col_z][i]
+        for j in range(len(cat_)):
+            f = cat_[col_flux][j]
+            z = cat_[col_z][j]
+            c = cat_[col_comp][j]
             vol = v_max(f, flux_lim, z, area, survey_min, survey_max)
-            V.append(vol)
+            V.append(vol.to_value(u.Mpc**3))
+            completeness.append(c)
         
         V = np.array(V)
+        completeness = np.array(completeness)
         
-        Phi = 1 / comp * np.sum(1 / V) / (bin[1] - bin[0])
+        Phi = np.sum(1 / (completeness * V)) / delta_log_lum
 
         phi.append(Phi)
+
+    return np.array(bin_centers), np.array(phi)
