@@ -262,7 +262,7 @@ def inject_sources_into_cube(
     flux_bins,
     sigma_range=(1, 10),
     sigma_lam=10,
-    elipticity_range=(0.7, 1),
+    elipticity_range=(0.55, 1),
     theta_range=(0, 180),
 ):
     """

@@ -33,22 +33,22 @@ fov = build_fov_mask(
         reg_file=region
     )
 
-chunk_size = 100
+chunk_size = 50
 chunks = [(i, min(i + chunk_size, nz)) for i in range(0, nz, chunk_size)]
 
 fov_mask = build_fov_mask(nz, ny, nx, wcs, reg_file=region)
 
 bins = [
-    (1.000e-02, 1.995e-02),
-    (1.995e-02, 3.981e-02),
-    (3.981e-02, 7.943e-02),
-    (7.943e-02, 1.585e-01),
-    (1.585e-01, 3.162e-01),
-    (3.162e-01, 6.310e-01),
-    (6.310e-01, 1.259e+00),
-    (1.259e+00, 2.512e+00),
-    (2.512e+00, 5.012e+00),
-    (5.012e+00, 1.000e+01),
+    (1.000e-04, 3.162e-04),
+    (3.162e-04, 1.000e-03),
+    (1.000e-03, 3.162e-03),
+    (3.162e-03, 1.000e-02),
+    (1.000e-02, 3.162e-02),
+    (3.162e-02, 1.000e-01),
+    (1.000e-01, 3.162e-01),
+    (3.162e-01, 1.000e+00),
+    (1.000e+00, 3.162e+00),
+    (3.162e+00, 1.000e+01),
 ]
 
 positions = generate_positions(
@@ -56,7 +56,7 @@ positions = generate_positions(
     existing_catalog=real_catalog_world,
     chunks=chunks,
     n_bins=len(bins),
-    n_per_bin=10,
+    n_per_bin=100,
     fov_mask=fov_mask,
  )
 
