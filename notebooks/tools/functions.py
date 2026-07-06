@@ -26,8 +26,8 @@ COLNAMES = {
     "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi", "dec_hetdex"],
     "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex", "redshift"],
     "flux":    ["flux", "Flux", "FLUX", "flux_lya"],
-    "luminosity": ["lum", "luminosity", "luminosity_lae"],
-    "completeness": ["completeness", "comp"],
+    "luminosity": ["lum", "luminosity", "luminosity_lae", "LUMINOSITY"],
+    "completeness": ["completeness", "comp", "COMPLETENESS"],
 }
  
 def _find_col(table, aliases):

@@ -1,3 +1,16 @@
 error    libmamba Could not set lock (Resource temporarily unavailable)
 warning  libmamba Cannot lock '/data/u/bgrashey/.cache/mamba/proc'
     Waiting for other mamba process to finish
+Device: cpu
+
+Loading model: lae_model.pt
+Loading cube (lazy): /data/hetdex/u/bgrashey/cubes/injected_new.zarr
+Cube shape: (1036, 2478, 2260)
+WCS axis order: ra_ax=0, dec_ax=1, wave_ax=2
+WCS axis names: ['RA', 'DEC', 'Wave']
+
+Scoring catalog: /data/hetdex/u/bgrashey/data_/injected_sources_log_bins.fits
+Progress: 1050/21000 (5%)Progress: 2100/21000 (10%)Progress: 3150/21000 (15%)Progress: 4200/21000 (20%)Progress: 5250/21000 (25%)Progress: 6300/21000 (30%)Progress: 7350/21000 (35%)Progress: 8400/21000 (40%)Progress: 9450/21000 (45%)Progress: 10500/21000 (50%)Progress: 11550/21000 (55%)Progress: 12600/21000 (60%)Progress: 13650/21000 (65%)Progress: 14700/21000 (70%)Progress: 15750/21000 (75%)Progress: 16800/21000 (80%)Progress: 17850/21000 (85%)Progress: 18900/21000 (90%)Progress: 19950/21000 (95%)Progress: 21000/21000 (100%)                                                                                
+Evaluated : 21000/21000
+Skipped   : 0
+Saved to  : /data/hetdex/u/bgrashey/data_/cnn_scored_sources.fits
