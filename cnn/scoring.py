@@ -27,9 +27,9 @@ MODEL_FILE   = "lae_model.pt"
 INPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/combined_manual_vdfi_rfscored.fits"
 OUTPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/combined_manual_vdfi_rf_cnn_scored.fits"
 
-COL_RA       = "ra"
-COL_DEC      = "dec"
-COL_REDSHIFT = "z"
+COL_RA       = "ra_vdfi"
+COL_DEC      = "dec_vdfi"
+COL_REDSHIFT = "z_vdfi"
 COL_OUTPUT   = "CNN_prob"
 
 LYA_REST = 1215.67
