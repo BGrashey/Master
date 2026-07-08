@@ -1,56 +1,0 @@
-STRIDE=5  |  torch-Threads=4  |  DataLoader-Workers=2
-Gerät: cpu
-Nutze 2 DataLoader-Worker, 4 torch-Threads
-
-[1/5] Lade Modell: lae_model.pt
-  Modell geladen.
-
-[2/5] Lade IFU-Würfel: /data/hetdex/u/bgrashey/cubes/injected_new.zarr
-  Würfelgröße   : 23.2 GB
-  Benötigt (Peak): 51.1 GB  |  Verfügbar: 759.4 GB
-  → Lade Würfel chunk-weise in RAM (float32, kein Zwischenpuffer) ...
-    …   5.0%    …  10.0%    …  14.9%    …  19.9%    …  24.9%    …  29.9%    …  34.8%    …  39.8%    …  44.8%    …  49.8%    …  54.8%    …  59.7%    …  64.7%    …  69.7%    …  74.7%    …  79.7%    …  84.6%    …  89.6%    …  94.6%
-  ✓ Würfel im RAM.
-  Würfelgröße: (1036, 2478, 2260)  (Z × Y × X)  [RAM]
-
-[3/5] GT-Diagnose vor dem Sliding Window …
-
-── GT-Diagnose: CNN-Score direkt an bekannten Quellen ──────────────
-  WCS-Achsen erkannt: ['RA', 'DEC', 'WAVE']
-
-  Zusammenfassung: 4177/4251 über Threshold (0.4)
-  Mittel=0.603  Min=0.352  Max=0.936
-  → Max. erreichbarer Recall beim Sliding Window: 98.3%
-─────────────────────────────────────────────────────────────────────
-
-[4/5] Sliding-Window (Stride=5, S/N>1.0, CNN-Schwelle=0.4) …
-  45,793,800 Gitterpunkte auf Stride-Gitter.
-  S/N>1.0: 45,793,800 → 5,574,695 Punkte
-  Peak-Filter   : 5,574,695 → 1,072,575 Punkte (19.2% behalten)
-  Starte CNN-Inferenz auf 1,072,575 Positionen ...
-  …   0.0%  |  478 Treffer bisher  …   1.0%  |  9560 Treffer bisher  …   2.0%  |  18374 Treffer bisher  …   2.9%  |  27249 Treffer bisher  …   3.9%  |  36451 Treffer bisher  …   4.8%  |  45283 Treffer bisher  …   5.8%  |  53984 Treffer bisher  …   6.7%  |  62781 Treffer bisher  …   7.7%  |  71699 Treffer bisher  …   8.6%  |  80523 Treffer bisher  …   9.6%  |  89396 Treffer bisher  …  10.5%  |  98180 Treffer bisher  …  11.5%  |  107147 Treffer bisher  …  12.5%  |  116135 Treffer bisher  …  13.4%  |  125192 Treffer bisher  …  14.4%  |  134056 Treffer bisher  …  15.3%  |  142942 Treffer bisher  …  16.3%  |  151816 Treffer bisher  …  17.2%  |  160823 Treffer bisher  …  18.2%  |  169989 Treffer bisher  …  19.1%  |  178843 Treffer bisher  …  20.1%  |  187728 Treffer bisher  …  21.1%  |  196532 Treffer bisher  …  22.0%  |  205602 Treffer bisher  …  23.0%  |  214665 Treffer bisher  …  23.9%  |  223737 Treffer bisher  …  24.9%  |  232815 Treffer bisher  …  25.8%  |  241860 Treffer bisher  …  26.8%  |  250823 Treffer bisher  …  27.7%  |  259748 Treffer bisher  …  28.7%  |  268790 Treffer bisher  …  29.6%  |  277837 Treffer bisher  …  30.6%  |  286661 Treffer bisher  …  31.6%  |  295457 Treffer bisher  …  32.5%  |  304345 Treffer bisher  …  33.5%  |  313251 Treffer bisher  …  34.4%  |  322315 Treffer bisher  …  35.4%  |  331218 Treffer bisher  …  36.3%  |  340160 Treffer bisher  …  37.3%  |  348985 Treffer bisher  …  38.2%  |  357867 Treffer bisher  …  39.2%  |  366738 Treffer bisher  …  40.1%  |  375585 Treffer bisher  …  41.1%  |  384498 Treffer bisher  …  42.1%  |  393616 Treffer bisher  …  43.0%  |  402648 Treffer bisher  …  44.0%  |  411626 Treffer bisher  …  44.9%  |  420629 Treffer bisher  …  45.9%  |  429506 Treffer bisher  …  46.8%  |  438365 Treffer bisher  …  47.8%  |  447204 Treffer bisher  …  48.7%  |  456039 Treffer bisher  …  49.7%  |  464845 Treffer bisher  …  50.6%  |  473737 Treffer bisher  …  51.6%  |  482778 Treffer bisher  …  52.6%  |  491650 Treffer bisher  …  53.5%  |  500473 Treffer bisher  …  54.5%  |  509313 Treffer bisher  …  55.4%  |  518085 Treffer bisher  …  56.4%  |  526853 Treffer bisher  …  57.3%  |  535695 Treffer bisher  …  58.3%  |  544586 Treffer bisher  …  59.2%  |  553479 Treffer bisher  …  60.2%  |  562290 Treffer bisher  …  61.1%  |  571129 Treffer bisher  …  62.1%  |  579954 Treffer bisher  …  63.1%  |  588761 Treffer bisher  …  64.0%  |  597530 Treffer bisher  …  65.0%  |  606313 Treffer bisher  …  65.9%  |  615195 Treffer bisher  …  66.9%  |  624002 Treffer bisher  …  67.8%  |  632864 Treffer bisher  …  68.8%  |  641703 Treffer bisher  …  69.7%  |  650542 Treffer bisher  …  70.7%  |  659422 Treffer bisher  …  71.7%  |  668305 Treffer bisher  …  72.6%  |  677161 Treffer bisher  …  73.6%  |  685980 Treffer bisher  …  74.5%  |  694832 Treffer bisher  …  75.5%  |  703643 Treffer bisher  …  76.4%  |  712455 Treffer bisher  …  77.4%  |  721325 Treffer bisher  …  78.3%  |  730069 Treffer bisher  …  79.3%  |  738907 Treffer bisher  …  80.2%  |  747756 Treffer bisher  …  81.2%  |  756566 Treffer bisher  …  82.2%  |  765339 Treffer bisher  …  83.1%  |  774168 Treffer bisher  …  84.1%  |  783213 Treffer bisher  …  85.0%  |  792400 Treffer bisher  …  86.0%  |  801244 Treffer bisher  …  86.9%  |  810190 Treffer bisher  …  87.9%  |  819160 Treffer bisher  …  88.8%  |  828001 Treffer bisher  …  89.8%  |  836778 Treffer bisher  …  90.7%  |  845636 Treffer bisher  …  91.7%  |  854409 Treffer bisher  …  92.7%  |  863239 Treffer bisher  …  93.6%  |  872043 Treffer bisher  …  94.6%  |  880800 Treffer bisher  …  95.5%  |  889580 Treffer bisher  …  96.5%  |  898374 Treffer bisher  …  97.4%  |  907247 Treffer bisher  …  98.4%  |  916031 Treffer bisher  …  99.3%  |  924968 Treffer bisher
-  931448 Pixel-Treffer über CNN-Schwellenwert 0.4.
-
-[4b/5] Non-Maximum Suppression via KD-Tree (Radius=10px) …
-  NMS: 931448 Rohdetektionen → 825064 einzigartige Kandidaten.
-  WCS-Achsen erkannt: ['RA', 'DEC', 'WAVE']
-
-✓ 825064 Kandidaten gespeichert: /data/hetdex/u/bgrashey/data_/cnn/kandidaten_cube_search.fits
-
-[5/5] Evaluiere Kandidaten gegen Ground-Truth …
-
-── Qualitätsevaluation ─────────────────────────────────────────────
-  Matching: ≤3.0" Winkelabstand, |Δz|≤0.1
-  Echte Quellen im Katalog : 4252
-  Gefundene Kandidaten     : 825064
-
-  True Positives   (TP)    : 14089
-  False Positives (FP)     : 810975
-  False Negatives (FN)     : 214
-
-  Purity     (Precision)   : 0.017   (14089/825064)
-  Completeness (Recall)    : 0.985   (14089/14303)
-  F1-Score                 : 0.034
-─────────────────────────────────────────────────────────────────
-
-✓ Inference komplett abgeschlossen.

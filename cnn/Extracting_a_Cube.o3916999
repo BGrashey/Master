@@ -1,42 +1,0 @@
-STRIDE=2  |  torch-Threads=4  |  DataLoader-Workers=2
-Gerät: cpu
-Nutze 2 DataLoader-Worker, 4 torch-Threads
-
-[1/5] Lade Modell: lae_model.pt
-  Modell geladen.
-
-[2/5] Lade IFU-Würfel: /data/hetdex/u/bgrashey/cubes/injected_new.zarr
-  Würfelgröße   : 23.2 GB
-  Benötigt (Peak): 51.1 GB  |  Verfügbar: 362.5 GB
-  → Lade Würfel chunk-weise in RAM (float32, kein Zwischenpuffer) ...
-    …   5.0%    …  10.0%    …  14.9%    …  19.9%    …  24.9%    …  29.9%    …  34.8%    …  39.8%    …  44.8%    …  49.8%    …  54.8%    …  59.7%    …  64.7%    …  69.7%    …  74.7%    …  79.7%    …  84.6%    …  89.6%    …  94.6%
-  ✓ Würfel im RAM.
-  Würfelgröße: (1036, 2478, 2260)  (Z × Y × X)  [RAM]
-
-[3/5] GT-Diagnose vor dem Sliding Window …
-
-── GT-Diagnose: CNN-Score direkt an bekannten Quellen ──────────────
-  WCS-Achsen erkannt: ['RA', 'DEC', 'WAVE']
-
-  Zusammenfassung: 4177/4251 über Threshold (0.4)
-  Mittel=0.603  Min=0.352  Max=0.936
-  → Max. erreichbarer Recall beim Sliding Window: 98.3%
-─────────────────────────────────────────────────────────────────────
-
-[4/5] Sliding-Window (Stride=2, S/N>0.5, CNN-Schwelle=0.4) …
-MemoryError
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/data/hetdex/u/bgrashey/git/Master/cnn/cube.py", line 481, in <module>
-    main()
-    ~~~~^^
-  File "/data/hetdex/u/bgrashey/git/Master/cnn/cube.py", line 439, in main
-    found_z, found_y, found_x, probs = sliding_window_inference_parallel(
-                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
-        model, cube_data, device, num_workers=NUM_WORKERS
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-MemoryError

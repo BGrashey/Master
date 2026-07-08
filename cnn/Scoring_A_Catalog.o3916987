@@ -1,13 +1,0 @@
-Device: cpu
-
-Loading model: lae_model.pt
-Loading cube (lazy): /data/hetdex/u/bgrashey/cubes/injected_new.zarr
-Cube shape: (1036, 2478, 2260)
-WCS axis order: ra_ax=0, dec_ax=1, wave_ax=2
-WCS axis names: ['RA', 'DEC', 'Wave']
-
-Scoring catalog: /data/hetdex/u/bgrashey/data_/injected_sources_log_bins.fits
-Progress: 55/1100 (5%)Progress: 110/1100 (10%)Progress: 165/1100 (15%)Progress: 220/1100 (20%)Progress: 275/1100 (25%)Progress: 330/1100 (30%)Progress: 385/1100 (35%)Progress: 440/1100 (40%)Progress: 495/1100 (45%)Progress: 550/1100 (50%)Progress: 605/1100 (55%)Progress: 660/1100 (60%)Progress: 715/1100 (65%)Progress: 770/1100 (70%)Progress: 825/1100 (75%)Progress: 880/1100 (80%)Progress: 935/1100 (85%)Progress: 990/1100 (90%)Progress: 1045/1100 (95%)Progress: 1100/1100 (100%)                                                                                
-Evaluated : 1100/1100
-Skipped   : 0
-Saved to  : /data/hetdex/u/bgrashey/data_/cnn_scored_sources.fits
