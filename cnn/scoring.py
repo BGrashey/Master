@@ -24,12 +24,12 @@ FITS_HEADER  = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
 MODEL_FILE   = "lae_model.pt"
 
 #INPUT_CATALOG  = "/data/hetdex/u/bgrashey/data_/injected_sources_log_bins.fits"
-INPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/combined_manual_vdfi_rfscored.fits"
-OUTPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/combined_manual_vdfi_rf_cnn_scored.fits"
+INPUT_CATALOG = "/Users/bene/Desktop/mpe/catalogs/fof_run_3_5.fits"
+OUTPUT_CATALOG = "/data/hetdex/u/bgrashey/data_/fof_run_3_5_cnnscored.fits"
 
-COL_RA       = "ra_vdfi"
-COL_DEC      = "dec_vdfi"
-COL_REDSHIFT = "z_vdfi"
+COL_RA       = "ra"
+COL_DEC      = "dec"
+COL_REDSHIFT = "z"
 COL_OUTPUT   = "CNN_prob"
 
 LYA_REST = 1215.67
