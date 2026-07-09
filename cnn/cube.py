@@ -22,10 +22,10 @@ config.read("config.ini")
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # ── Pfade ─────────────────────────────────────────────────────────────────────
-CUBE_FILE        = "/data/hetdex/u/bgrashey/cubes/injected_new.zarr"
+CUBE_FILE        = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_sig_filter.zarr"
 FITS_HEADER_FILE = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
 MODEL_FILE       = "lae_model.pt"
-OUTPUT_FILE      = "/data/hetdex/u/bgrashey/data_/cnn/kandidaten_cube_search.fits"
+OUTPUT_FILE      = "/data/hetdex/u/bgrashey/data_/cnn/cnn_run.fits"
 TRUE_CAT         = "/data/hetdex/u/bgrashey/data_/cnn/regions_tabelle.fits"
 
 # ── Parameter ─────────────────────────────────────────────────────────────────
@@ -425,7 +425,8 @@ def main():
     print("  Modell geladen.")
 
     print(f"\n[2/5] Lade IFU-Würfel: {CUBE_FILE}")
-    z_store           = zarr.open_group(CUBE_FILE, mode='r')
+    #z_store           = zarr.open_group(CUBE_FILE, mode='r')
+    z_store           = zarr.open(CUBE_FILE, mode="r")
     cube_data, in_ram = load_cube(z_store)
     wcs               = WCS(fits.getheader(FITS_HEADER_FILE))
     print(f"  Würfelgröße: {cube_data.shape}  (Z × Y × X)"

@@ -1,0 +1,43 @@
+STRIDE=4  |  torch-Threads=4  |  DataLoader-Workers=2
+Gerät: cpu
+Nutze 2 DataLoader-Worker, 4 torch-Threads
+
+[1/5] Lade Modell: lae_model.pt
+  Modell geladen.
+
+[2/5] Lade IFU-Würfel: /data/hetdex/u/bgrashey/cubes/ssa22_fullfp_sig_filter.zarr
+Traceback (most recent call last):
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/cube.py", line 482, in <module>
+    main()
+    ~~~~^^
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/cube.py", line 430, in main
+    cube_data, in_ram = load_cube(z_store)
+                        ~~~~~~~~~^^^^^^^^^
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/cube.py", line 80, in load_cube
+    zarr_array   = z_store["PRIMARY"]
+                   ~~~~~~~^^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/array.py", line 2578, in __getitem__
+    return self.get_orthogonal_selection(pure_selection, fields=fields)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/array.py", line 3055, in get_orthogonal_selection
+    return sync(
+        self.async_array._get_selection(
+            indexer=indexer, out=out, fields=fields, prototype=prototype
+        )
+    )
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/sync.py", line 158, in sync
+    raise return_result
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/sync.py", line 118, in _runner
+    return await coro
+           ^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/array.py", line 1414, in _get_selection
+    return await _get_selection(
+           ^^^^^^^^^^^^^^^^^^^^^
+    ...<9 lines>...
+    )
+    ^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/array.py", line 5426, in _get_selection
+    out_dtype = check_fields(fields, dtype)
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/indexing.py", line 1410, in check_fields
+    raise IndexError("invalid 'fields' argument, array does not have any fields")
+IndexError: invalid 'fields' argument, array does not have any fields
