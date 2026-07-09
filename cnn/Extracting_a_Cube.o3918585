@@ -1,0 +1,57 @@
+STRIDE=4  |  torch-Threads=4  |  DataLoader-Workers=2
+Gerät: cpu
+Nutze 2 DataLoader-Worker, 4 torch-Threads
+
+[1/5] Lade Modell: lae_model.pt
+  Modell geladen.
+
+[2/5] Lade IFU-Würfel: /data/hetdex/u/bgrashey/cubes/ssa22_fullfp_sig_filter.zarr
+  Zarr-Store ist ein Array (kein Group) — verwende es direkt.
+  Würfelgröße   : 23.2 GB
+  Benötigt (Peak): 51.1 GB  |  Verfügbar: 762.2 GB
+  → Lade Würfel chunk-weise in RAM (float32, kein Zwischenpuffer) ...
+    …   4.9%    …   9.8%    …  14.8%    …  19.7%    …  24.6%    …  29.5%    …  34.5%    …  39.4%    …  44.3%    …  49.2%    …  54.2%    …  59.1%    …  64.0%    …  68.9%    …  73.9%    …  78.8%    …  83.7%    …  88.6%    …  93.5%
+  ✓ Würfel im RAM.
+  Würfelgröße: (1036, 2478, 2260)  (Z × Y × X)  [RAM]
+
+[3/5] GT-Diagnose vor dem Sliding Window …
+
+── GT-Diagnose: CNN-Score direkt an bekannten Quellen ──────────────
+  WCS-Achsen erkannt: ['RA', 'DEC', 'WAVE']
+
+  Zusammenfassung: 4231/4251 über Threshold (0.4)
+  Mittel=0.795  Min=0.363  Max=0.942
+  → Max. erreichbarer Recall beim Sliding Window: 99.5%
+─────────────────────────────────────────────────────────────────────
+
+[4/5] Sliding-Window (Stride=4, S/N>0.5, CNN-Schwelle=0.4) …
+  89,274,347 Gitterpunkte auf Stride-Gitter.
+  S/N>0.5: 89,274,347 → 2,078,530 Punkte
+  Peak-Filter   : 2,078,530 → 1,042,045 Punkte (50.1% behalten)
+  Starte CNN-Inferenz auf 1,042,045 Positionen ...
+  …   0.0%  |  511 Treffer bisher  …   1.0%  |  10719 Treffer bisher  …   2.0%  |  20953 Treffer bisher  …   3.0%  |  31191 Treffer bisher  …   4.0%  |  41424 Treffer bisher  …   5.0%  |  51658 Treffer bisher  …   5.9%  |  61888 Treffer bisher  …   6.9%  |  72124 Treffer bisher  …   7.9%  |  82358 Treffer bisher  …   8.9%  |  92596 Treffer bisher  …   9.9%  |  102833 Treffer bisher  …  10.9%  |  113070 Treffer bisher  …  11.8%  |  123309 Treffer bisher  …  12.8%  |  133540 Treffer bisher  …  13.8%  |  143762 Treffer bisher  …  14.8%  |  153994 Treffer bisher  …  15.8%  |  164234 Treffer bisher  …  16.8%  |  174473 Treffer bisher  …  17.7%  |  184709 Treffer bisher  …  18.7%  |  194931 Treffer bisher  …  19.7%  |  205165 Treffer bisher  …  20.7%  |  215405 Treffer bisher  …  21.7%  |  225643 Treffer bisher  …  22.7%  |  235879 Treffer bisher  …  23.6%  |  246111 Treffer bisher  …  24.6%  |  256346 Treffer bisher  …  25.6%  |  266573 Treffer bisher  …  26.6%  |  276813 Treffer bisher  …  27.6%  |  287052 Treffer bisher  …  28.5%  |  297282 Treffer bisher  …  29.5%  |  307509 Treffer bisher  …  30.5%  |  317742 Treffer bisher  …  31.5%  |  327980 Treffer bisher  …  32.5%  |  338210 Treffer bisher  …  33.5%  |  348445 Treffer bisher  …  34.4%  |  358680 Treffer bisher  …  35.4%  |  368919 Treffer bisher  …  36.4%  |  379154 Treffer bisher  …  37.4%  |  389392 Treffer bisher  …  38.4%  |  399622 Treffer bisher  …  39.4%  |  409848 Treffer bisher  …  40.3%  |  420088 Treffer bisher  …  41.3%  |  430323 Treffer bisher  …  42.3%  |  440549 Treffer bisher  …  43.3%  |  450767 Treffer bisher  …  44.3%  |  461003 Treffer bisher  …  45.3%  |  471236 Treffer bisher  …  46.2%  |  481473 Treffer bisher  …  47.2%  |  491659 Treffer bisher  …  48.2%  |  501897 Treffer bisher  …  49.2%  |  512135 Treffer bisher  …  50.2%  |  522367 Treffer bisher  …  51.1%  |  532605 Treffer bisher  …  52.1%  |  542843 Treffer bisher  …  53.1%  |  553083 Treffer bisher  …  54.1%  |  563312 Treffer bisher  …  55.1%  |  573518 Treffer bisher  …  56.1%  |  583754 Treffer bisher  …  57.0%  |  593988 Treffer bisher  …  58.0%  |  604227 Treffer bisher  …  59.0%  |  614465 Treffer bisher  …  60.0%  |  624699 Treffer bisher  …  61.0%  |  634929 Treffer bisher  …  62.0%  |  645163 Treffer bisher  …  62.9%  |  655400 Treffer bisher  …  63.9%  |  665640 Treffer bisher  …  64.9%  |  675877 Treffer bisher  …  65.9%  |  686110 Treffer bisher  …  66.9%  |  696344 Treffer bisher  …  67.9%  |  706577 Treffer bisher  …  68.8%  |  716816 Treffer bisher  …  69.8%  |  727054 Treffer bisher  …  70.8%  |  737251 Treffer bisher  …  71.8%  |  747464 Treffer bisher  …  72.8%  |  757703 Treffer bisher  …  73.8%  |  767880 Treffer bisher  …  74.7%  |  778116 Treffer bisher  …  75.7%  |  788346 Treffer bisher  …  76.7%  |  798554 Treffer bisher  …  77.7%  |  808788 Treffer bisher  …  78.7%  |  819024 Treffer bisher  …  79.6%  |  829258 Treffer bisher  …  80.6%  |  839493 Treffer bisher  …  81.6%  |  849726 Treffer bisher  …  82.6%  |  859964 Treffer bisher  …  83.6%  |  870201 Treffer bisher  …  84.6%  |  880427 Treffer bisher  …  85.5%  |  890617 Treffer bisher  …  86.5%  |  900853 Treffer bisher  …  87.5%  |  911089 Treffer bisher  …  88.5%  |  921329 Treffer bisher  …  89.5%  |  931560 Treffer bisher  …  90.5%  |  941795 Treffer bisher  …  91.4%  |  952031 Treffer bisher  …  92.4%  |  962246 Treffer bisher  …  93.4%  |  972482 Treffer bisher  …  94.4%  |  982717 Treffer bisher  …  95.4%  |  992941 Treffer bisher  …  96.4%  |  1003155 Treffer bisher  …  97.3%  |  1013393 Treffer bisher  …  98.3%  |  1023621 Treffer bisher  …  99.3%  |  1033860 Treffer bisher
+  1041115 Pixel-Treffer über CNN-Schwellenwert 0.4.
+
+[4b/5] Non-Maximum Suppression via KD-Tree (Radius=8px) …
+  NMS: 1041115 Rohdetektionen → 986526 einzigartige Kandidaten.
+  WCS-Achsen erkannt: ['RA', 'DEC', 'WAVE']
+
+✓ 986526 Kandidaten gespeichert: /data/hetdex/u/bgrashey/data_/cnn/cnn_run.fits
+
+[5/5] Evaluiere Kandidaten gegen Ground-Truth …
+
+── Qualitätsevaluation ─────────────────────────────────────────────
+  Matching: ≤3.0" Winkelabstand, |Δz|≤0.1
+  Echte Quellen im Katalog : 4252
+  Gefundene Kandidaten     : 986526
+
+  True Positives   (TP)    : 14891
+  False Positives (FP)     : 971635
+  False Negatives (FN)     : 60
+
+  Purity     (Precision)   : 0.015   (14891/986526)
+  Completeness (Recall)    : 0.996   (14891/14951)
+  F1-Score                 : 0.030
+─────────────────────────────────────────────────────────────────
+
+✓ Inference komplett abgeschlossen.

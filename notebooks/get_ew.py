@@ -4,8 +4,8 @@
 from astropy.table import Table
 
 # catalog:
-table = "/data/hetdex/u/bgrashey/data/ssa22_full_catalog.fits"
-    
+table = "/data/hetdex/u/bgrashey/data_/fof_run_3_5_cnnscored.fits"
+
 tbl = Table.read(table)
 Catalog = tbl.to_pandas()
 
