@@ -71,13 +71,63 @@ class SlidingWindowDataset(Dataset):
         return torch.tensor(sub).unsqueeze(0), torch.tensor([z, y, x])
 
 
+# ── Zarr-Auto-Erkennung (Array vs. Group) ─────────────────────────────────────
+def get_zarr_array(z_store, array_key="PRIMARY"):
+    """
+    Nimmt das Ergebnis von zarr.open(...) entgegen und gibt immer ein
+    zarr.Array zurück — egal ob die Datei direkt ein Array ist, oder eine
+    Group, die das eigentliche Array unter einem Schlüssel (Standard:
+    'PRIMARY') enthält.
+
+    Fallback-Logik bei einer Group:
+      1. Schlüssel `array_key` (Standard 'PRIMARY'), falls vorhanden.
+      2. Falls nicht vorhanden, aber genau EIN Array in der Group liegt →
+         dieses wird automatisch verwendet.
+      3. Bei mehreren/keinen Arrays wird ein klarer Fehler geworfen, damit
+         nichts Falsches geladen wird.
+    """
+    if isinstance(z_store, zarr.Array):
+        print("  Zarr-Store ist ein Array (kein Group) — verwende es direkt.")
+        return z_store
+
+    if isinstance(z_store, zarr.Group):
+        if array_key in z_store:
+            print(f"  Zarr-Store ist eine Group — verwende Schlüssel '{array_key}'.")
+            return z_store[array_key]
+
+        array_keys = list(z_store.array_keys())
+        if len(array_keys) == 1:
+            key = array_keys[0]
+            print(f"  Zarr-Store ist eine Group ohne '{array_key}' — "
+                  f"verwende einziges vorhandenes Array '{key}'.")
+            return z_store[key]
+        elif len(array_keys) == 0:
+            raise ValueError(
+                f"Zarr-Group '{getattr(z_store, 'path', CUBE_FILE)}' enthält keine Arrays."
+            )
+        else:
+            raise ValueError(
+                f"Zarr-Group enthält mehrere Arrays ({array_keys}) und keinen "
+                f"Schlüssel '{array_key}'. Bitte array_key in get_zarr_array() "
+                f"explizit angeben."
+            )
+
+    raise TypeError(
+        f"Unbekannter Zarr-Typ ({type(z_store)}) — erwartet zarr.Array oder zarr.Group."
+    )
+
+
 # ── RAM-Check und Cube-Loading ────────────────────────────────────────────────
 def load_cube(z_store):
     """
     Lädt den Cube chunk-weise in ein vorallokiertes float32-Array.
     Kein Zwischenpuffer im nativen Zarr-Dtype → kein OOM trotz großem Cube.
+
+    Funktioniert sowohl mit einem reinen zarr.Array als auch mit einer
+    zarr.Group, die den Würfel unter 'PRIMARY' (oder als einziges Array)
+    enthält — die Erkennung übernimmt get_zarr_array().
     """
-    zarr_array   = z_store["PRIMARY"]
+    zarr_array   = get_zarr_array(z_store)
     cube_gb      = zarr_array.nbytes / 1e9
     needed_gb    = cube_gb * 2.2
     available_gb = psutil.virtual_memory().available / 1e9
@@ -425,7 +475,9 @@ def main():
     print("  Modell geladen.")
 
     print(f"\n[2/5] Lade IFU-Würfel: {CUBE_FILE}")
-    #z_store           = zarr.open_group(CUBE_FILE, mode='r')
+    # zarr.open erkennt automatisch, ob es sich um ein Array oder eine Group
+    # handelt — get_zarr_array() (in load_cube) löst das dann in beiden
+    # Fällen zum eigentlichen Array auf (Group → 'PRIMARY' oder einziges Array).
     z_store           = zarr.open(CUBE_FILE, mode="r")
     cube_data, in_ram = load_cube(z_store)
     wcs               = WCS(fits.getheader(FITS_HEADER_FILE))
