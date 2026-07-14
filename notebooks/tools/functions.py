@@ -288,28 +288,33 @@ def _load(path):
     fmt = "fits" if path.endswith((".fits", ".fit")) else "csv"
     return Table.read(path, format=fmt)
  
-def crossmatch(path1, path2, rad=2.5, dz_max=0.1):
-    """
-    Matched zwei Kataloge per Winkelabgleich + Δz-Schnitt.
-    Gibt Katalog 1 mit Spalte MATCHED (bool) zurück.
-    """
+def crossmatch(path1, path2, rad=2.5, dz_max=0.1, use_z=True):
+
     t1, t2 = _load(path1), _load(path2)
-    z1 = np.array(t1[_find_col(t1, COLNAMES["z"])])
-    z2 = np.array(t2[_find_col(t2, COLNAMES["z"])])
- 
-    cat1 = SkyCoord(ra=t1[_find_col(t1, COLNAMES["ra"])].data * u.deg,
-                    dec=t1[_find_col(t1, COLNAMES["dec"])].data * u.deg)
-    cat2 = SkyCoord(ra=t2[_find_col(t2, COLNAMES["ra"])].data * u.deg,
-                    dec=t2[_find_col(t2, COLNAMES["dec"])].data * u.deg)
- 
+
+    cat1 = SkyCoord(
+        ra=t1[_find_col(t1, COLNAMES["ra"])].data * u.deg,
+        dec=t1[_find_col(t1, COLNAMES["dec"])].data * u.deg,
+    )
+    cat2 = SkyCoord(
+        ra=t2[_find_col(t2, COLNAMES["ra"])].data * u.deg,
+        dec=t2[_find_col(t2, COLNAMES["dec"])].data * u.deg,
+    )
+
     i1, i2, _, _ = search_around_sky(cat1, cat2, rad * u.arcsec)
- 
-    # Δz-Schnitt
-    mask = np.abs(z1[i1] - z2[i2]) < dz_max
-    matched_idx = np.unique(i1[mask])
- 
+
+    if use_z:
+        z1 = np.asarray(t1[_find_col(t1, COLNAMES["z"])])
+        z2 = np.asarray(t2[_find_col(t2, COLNAMES["z"])])
+
+        mask = np.abs(z1[i1] - z2[i2]) < dz_max
+        matched_idx = np.unique(i1[mask])
+    else:
+        matched_idx = np.unique(i1)
+
     t1["MATCHED"] = np.zeros(len(t1), dtype=bool)
     t1["MATCHED"][matched_idx] = True
+
     return t1
 
 

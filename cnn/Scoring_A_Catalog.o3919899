@@ -1,0 +1,30 @@
+Device: cpu
+
+Loading model: lae_model.pt
+Loading cube (lazy): /data/hetdex/u/bgrashey/cubes/ssa22_fullfp_sig_filter.zarr
+Cube shape: (1036, 2478, 2260)
+WCS axis order: ra_ax=0, dec_ax=1, wave_ax=2
+WCS axis names: ['RA', 'DEC', 'Wave']
+
+Scoring catalog: /data/hetdex/u/brashey/git/Master/notebooks/temp.fits
+Traceback (most recent call last):
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/scoring.py", line 206, in <module>
+    score_catalog(
+    ~~~~~~~~~~~~~^
+        input_catalog=INPUT_CATALOG,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        output_path=OUTPUT_CATALOG,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/data/hetdex/u/bgrashey/git/Master/cnn/scoring.py", line 116, in score_catalog
+    cat = Table.read(input_catalog)
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/astropy/table/connect.py", line 62, in __call__
+    out = self.registry.read(cls, *args, **kwargs)
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/astropy/io/registry/core.py", line 200, in read
+    fileobj = ctx.__enter__()
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/contextlib.py", line 141, in __enter__
+    return next(self.gen)
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/astropy/utils/data.py", line 364, in get_readable_fileobj
+    fileobj = io.FileIO(name_or_obj, "r")
+FileNotFoundError: [Errno 2] No such file or directory: '/data/hetdex/u/brashey/git/Master/notebooks/temp.fits'
