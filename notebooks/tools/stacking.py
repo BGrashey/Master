@@ -18,7 +18,11 @@ from photutils.aperture import (
 )
 from photutils.centroids import centroid_com
 
-with fits.open("/Users/bene/Desktop/mpe/fits/cubes/header.fits") as h:
+import warnings
+
+#with fits.open("/Users/bene/Desktop/mpe/fits/cubes/header.fits") as h:
+#    header = h[0].header
+with fits.open("/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits") as h:
     header = h[0].header
 wcs = WCS(header)
 
@@ -98,7 +102,7 @@ def prepare_subcube(ra, dec, z, zarr_cube, width=25, spec_width=25):
     x0, x1 = xi - width, xi + width
 
     out_of_bounds = (z0 < 0 or z1 > n_wave or y0 < 0 or y1 > ny or x0 < 0 or x1 > nx)
-
+    """
     if not out_of_bounds:
         sub_cube = np.asarray(zarr_cube[z0:z1, y0:y1, x0:x1])
     else:
@@ -123,6 +127,20 @@ def prepare_subcube(ra, dec, z, zarr_cube, width=25, spec_width=25):
     sub_wcs.wcs.crpix[2] -= z0
 
     return sub_cube, sub_wcs.celestial
+    """
+    
+    if out_of_bounds:
+        return None, None   # Quelle liegt nicht vollständig im Cube
+
+    sub_cube = np.asarray(zarr_cube[z0:z1, y0:y1, x0:x1])
+
+    sub_wcs = wcs.deepcopy()
+    sub_wcs.wcs.crpix[0] -= x0
+    sub_wcs.wcs.crpix[1] -= y0
+    sub_wcs.wcs.crpix[2] -= z0
+
+    return sub_cube, sub_wcs.celestial
+    
 
 def subtract_sky_per_slice(subcube):
 
@@ -150,7 +168,7 @@ def subtract_continuum(cube, line_mask=None, degree=2, sigma=3.0, maxiters=5):
     if line_mask is None:
         line_mask = np.zeros(n_wave, dtype=bool)
         center = n_wave // 2
-        line_mask[center-6:center+7] = True
+        line_mask[center-9:center+10] = True
 
     continuum = np.full_like(cube, np.nan)
 
@@ -185,9 +203,13 @@ def make_narrowband(subcube, line_mask=None):
     if line_mask is None:
         line_mask = np.zeros(n_wave, dtype=bool)
         center = n_wave // 2
-        line_mask[center-10:center+11] = True
-
-    image = np.nanmean(subcube[line_mask], axis=0)
+        line_mask[center-9:center+10] = True
+        
+    selected = subcube[line_mask]
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        image = np.nanmean(selected, axis=0)
 
     return image
 
@@ -266,6 +288,14 @@ class Stacking:
     """
     Class to perform stacking of lyman alpha emitters. It needs only a astropy
     Table and a loaded zarr cube to perform the stacking.
+    
+    Parameters
+    catalog: astropy Table object
+    cube: loaded zarr array
+    width: width of the cutout
+    spec_width: width of the cutout spectrally
+    kpc_pxl: how many kpc should a pixel in the stack have
+    npix: width of the stacked image
     """
 
     def __init__(
@@ -292,10 +322,17 @@ class Stacking:
 
         images = []
         footprints = []
+        
+        n_skipped = 0
 
         for i in range(len(self.catalog)):
             ra, dec, z = self.catalog[i][col_ra], self.catalog[i][col_dec], self.catalog[i][col_z]
             subcube, sub_wcs = prepare_subcube(ra, dec, z, self.cube, width=self.width, spec_width=self.spec_width)
+            
+            if subcube is None:
+                n_skipped += 1
+                continue
+            
             subtracted = subtract_sky_per_slice(subcube)
             contsub = subtract_continuum(subtracted)
             img = make_narrowband(contsub)
@@ -307,6 +344,8 @@ class Stacking:
         stack_footprint = np.array(footprints)
 
         weighted_stack = np.nansum(stack_data * stack_footprint, axis=0) / np.nansum(stack_footprint, axis=0)
+        
+        print(f"Skipped: {n_skipped}")
         
         return weighted_stack
     
