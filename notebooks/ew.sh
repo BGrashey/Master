@@ -15,4 +15,4 @@
 export PYTHONPATH=$PYTHONPATH:/data/hetdex/u/bgrashey/notebooks/
 
 # --- Skript ausführen ---
-/data/u/bgrashey/micromamba run -p /data/backup/hetdex/u/bgrashey/envs/cube_aktuell python /data/u/bgrashey/ew.py --catalog /data/hetdex/u/bgrashey/data_/fof_cnn_scored.fits --ra ra --dec dec --z z 
+/data/u/bgrashey/micromamba run -p /data/backup/hetdex/u/bgrashey/envs/cube_aktuell python /data/u/bgrashey/ew.py --catalog /data/hetdex/u/bgrashey/data_/full_catalog.fits --ra ra_vdfi --dec dec_vdfi --z z_vdfi 

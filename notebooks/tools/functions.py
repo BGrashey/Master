@@ -20,6 +20,8 @@ from astropy.cosmology import z_at_value
 from scipy.special import erf
 from scipy.optimize import curve_fit
 
+from scipy.spatial import cKDTree
+
 
 COLNAMES = {
     "ra":  ["ra", "RA", "Ra", "RAJ2000", "ra_vdfi", "ra_hetdex"],
@@ -455,3 +457,34 @@ def fit_erf(x_data, y_data):
 
 def completeness_model(x, popt):
     return completeness_function(x, *popt)
+
+
+def radec_z_to_cartesian(ra_deg, dec_deg, z, cosmology=cosmo):
+    """RA/DEC [deg] + Redshift -> comoving kartesische Koordinaten [Mpc]."""
+    d_c = cosmology.comoving_distance(z).to(u.Mpc).value  # comoving distance
+    coords = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg)
+    x = d_c * np.cos(coords.dec.rad) * np.cos(coords.ra.rad)
+    y = d_c * np.cos(coords.dec.rad) * np.sin(coords.ra.rad)
+    z_cart = d_c * np.sin(coords.dec.rad)
+    return np.column_stack([x, y, z_cart])
+ 
+ 
+def knn_density(positions, k=8, query_positions=None):
+    """
+    kNN-Dichteschätzer: rho = k / (4/3 * pi * r_k^3)
+    r_k = Distanz zum k-ten Nachbarn (Galaxie selbst nicht mitgezählt).
+    """
+    tree = cKDTree(positions)
+    if query_positions is None:
+        query_positions = positions
+        k_query = k + 1
+        offset = 1
+    else:
+        k_query = k
+        offset = 0
+ 
+    dist, _ = tree.query(query_positions, k=k_query)
+    r_k = dist[:, -1]  # Distanz zum k-ten (echten) Nachbarn
+    volume = (4.0 / 3.0) * np.pi * r_k**3
+    density = k / volume
+    return density, r_k
