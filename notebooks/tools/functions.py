@@ -365,52 +365,52 @@ def match_survey_footprint(catalog: str,
     
 
 
-def z_max_fluxlim(flux_lim, flux, redshift, survey_max=3.4):
+def z_max_fluxlim(flux_lim, flux, redshift, survey_min=2.7, survey_max=3.4):
     if flux < flux_lim:
         z = redshift
     else:
         dl = np.sqrt(flux / flux_lim) * cosmo.luminosity_distance(redshift)
         z = z_at_value(cosmo.luminosity_distance, dl)
     
-    return np.minimum(z, survey_max)
+    return np.clip(z, survey_min, survey_max)
 
 
 
 def v_max(flux, flux_lim, redshift, area=1000*u.deg**2, survey_min=2.7, survey_max=3.4):
     z_min = survey_min
-    z_max = z_max_fluxlim(flux_lim, flux, redshift, survey_max)
+    z_max = z_max_fluxlim(flux_lim, flux, redshift, survey_min, survey_max)
     area_sr = area.to(u.sr).value
     
-    v_max = cosmo.comoving_volume(z_max)
+    v_max_ = cosmo.comoving_volume(z_max)
     v_min = cosmo.comoving_volume(z_min)
 
-    volume = (v_max - v_min) * (area_sr / (4 * np.pi))
+    volume = (v_max_ - v_min) * (area_sr / (4 * np.pi))
 
     return volume
 
 
 
 
-def luminosity_function(flux_lim, catalog,
-                        num_bins=10,
+def luminosity_function(flux_lim, catalog, bins,
                         area=0.07056104808102222*u.deg**2,
                         survey_min=2.77,
-                        survey_max=3.43):
+                        survey_max=3.43,
+                        min_n=3):
     
     cat = Table.read(catalog)
 
     phi = []
+    phi_err = []
     bin_centers = []
+    n_gal = []
 
     col_z = _find_col(cat, COLNAMES["z"])
     col_flux = _find_col(cat, COLNAMES["flux"])
     col_lum = _find_col(cat, COLNAMES["luminosity"])
     col_comp = _find_col(cat, COLNAMES["completeness"])
 
-    lum_low = np.log10(np.min(cat[col_lum]))
-    lum_high = np.log10(np.max(cat[col_lum]))
-
-    bin_edges = np.logspace(lum_low, lum_high, num_bins+1)
+    bin_edges = bins
+    num_bins = len(bin_edges) - 1
 
     for i in range(num_bins):
         lum_low = bin_edges[i]
@@ -420,8 +420,12 @@ def luminosity_function(flux_lim, catalog,
         
         bin_center = 10**( (np.log10(lum_low) + np.log10(lum_high)) / 2.0 )
         bin_centers.append(bin_center)
-
-        mask = (cat[col_lum] >= lum_low) & (cat[col_lum] < lum_high)
+        
+        if i == num_bins - 1:
+            mask = (cat[col_lum] >= lum_low) & (cat[col_lum] <= lum_high)
+        else:
+            mask = (cat[col_lum] >= lum_low) & (cat[col_lum] < lum_high)
+            
         cat_ = cat[mask]
 
         completeness = []
@@ -437,11 +441,23 @@ def luminosity_function(flux_lim, catalog,
         V = np.array(V)
         completeness = np.array(completeness)
         
-        Phi = np.sum(1 / (completeness * V)) / delta_log_lum
+        if np.any(completeness <= 0):
+            print(f"Warning: bin {i} includes completeness <= 0")
+        
+        valid = (completeness > 0) & (V > 0)
+        n_valid = np.sum(valid)
+        n_gal.append(n_valid)
+        
+        if n_valid < min_n:
+            phi.append(np.nan)
+            phi_err.append(np.nan)
+            continue
+        
+        Phi = np.sum(1 / (completeness[valid] * V[valid])) / delta_log_lum
 
         phi.append(Phi)
 
-    return np.array(bin_centers), np.array(phi)
+    return np.array(bin_centers), np.array(phi), np.array(n_gal)
 
 
 
@@ -468,7 +484,7 @@ def radec_z_to_cartesian(ra_deg, dec_deg, z, cosmology=cosmo):
     z_cart = d_c * np.sin(coords.dec.rad)
     return np.column_stack([x, y, z_cart])
  
- 
+
 def knn_density(positions, k=8, query_positions=None):
     """
     kNN-Dichteschätzer: rho = k / (4/3 * pi * r_k^3)

@@ -6,7 +6,7 @@
 #$ -M B.Grashey@campus.lmu.de
 #$ -pe smp 1
 #$ -l h_vmem=120G
-#$ -l h_rt=08:00:00
+#$ -l h_rt=48:00:00
 
 
 
