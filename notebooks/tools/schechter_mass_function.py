@@ -2,6 +2,8 @@ import numpy as np
 import emcee
 import corner
 
+from scipy.special import gamma, gammaincc
+
 
 def schechter_log(L, log_phistar, log_Lstar, alpha):
     Lstar = 10**log_Lstar
@@ -11,8 +13,8 @@ def schechter_log(L, log_phistar, log_Lstar, alpha):
 
 
 def fit_schechter(bins, phi, phi_err,
-                  p0=None,
-                  bounds=((-6, 0), (41, 45), (-3, 0)),
+                  p0=(-3.1, 42.8, -1.5),
+                  bounds=((-6, 0), (41, 45), (-2, -1)),
                   nwalkers=32,
                   nsteps=5000,
                   nburn=1000,
@@ -143,30 +145,31 @@ def corner_plot(results):
     fig = corner.corner(
     results["flat_samples"],
     labels=[r"$\log \Phi^*$", r"$\log L^*$", r"$\alpha$"],
-    truths=[results["log_phistar"][0], results["log_Lstar"][0], results["alpha"][0]]
+    truths=[results["log_phistar"][0], results["log_Lstar"][0], results["alpha"][0]],
+    bins=20
     )
     return fig
 
 
+def cummulative_schechter(L, log_phi, log_L, alpha):
+    L_star = 10 ** log_L
+    Phi_star = 10**log_phi
+    x = L / L_star
+    return Phi_star * gamma(alpha + 1) * gammaincc(alpha + 1, x)
 
 
+import mpmath
 
-# mock luminosity function
+def upper_incomplete_gamma(a, x):
+    """Robuste unvollständige Gammafunktion, funktioniert auch für a < 0."""
+    if np.isscalar(x):
+        return float(mpmath.gammainc(a, x))
+    return np.array([float(mpmath.gammainc(a, xi)) for xi in np.atleast_1d(x)])
 
-def make_mock_schechter(log_phistar_true, log_Lstar_true, alpha_true,
-                         L_min=7e41, L_max=2e43, n_bins=8,
-                         rel_noise=0.05, seed=100):
-    
-    rng = np.random.default_rng(seed)
 
-    bins = np.logspace(np.log10(L_min), np.log10(L_max), n_bins)
-
-    phi_true = schechter_log(bins, log_phistar_true, log_Lstar_true, alpha_true)
-
-    phi_err = rel_noise * phi_true * (1 + 3 * (bins / L_max))  # Fehler wächst zum Bright End
-
-    phi_noisy = phi_true + rng.normal(0, phi_err)
-
-    phi_noisy = np.clip(phi_noisy, 1e-30, None)
-
-    return bins, phi_noisy, phi_err
+def cum_test(L, log_phistar, log_Lstar, alpha):
+    Lstar = 10**log_Lstar
+    phistar = 10**log_phistar
+    x = np.atleast_1d(L) / Lstar
+    Gamma_vals = upper_incomplete_gamma(alpha + 1, x)
+    return phistar * Gamma_vals

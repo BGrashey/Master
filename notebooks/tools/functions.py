@@ -418,15 +418,18 @@ def luminosity_function(flux_lim, catalog, bins,
         
         delta_log_lum = np.log10(lum_high) - np.log10(lum_low)
         
-        bin_center = 10**( (np.log10(lum_low) + np.log10(lum_high)) / 2.0 )
-        bin_centers.append(bin_center)
-        
         if i == num_bins - 1:
             mask = (cat[col_lum] >= lum_low) & (cat[col_lum] <= lum_high)
         else:
             mask = (cat[col_lum] >= lum_low) & (cat[col_lum] < lum_high)
             
         cat_ = cat[mask]
+        
+        if len(cat_) > 0:
+            bin_center = np.median(cat_[col_lum])  # oder np.mean, je nach Präferenz
+        else:
+            bin_center = 10**((np.log10(lum_low) + np.log10(lum_high)) / 2.0)
+        bin_centers.append(bin_center)
 
         completeness = []
         V = []
