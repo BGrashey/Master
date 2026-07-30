@@ -350,25 +350,36 @@ class Stacking:
         return weighted_stack
     
     def cog(self, img, r_max=12):
-        
+    
         data_slice = np.nan_to_num(img, nan=0.0, posinf=0.0, neginf=0.0)
-
         x0, y0 = centroid_com(data_slice)
 
         radii = np.arange(2, r_max, 1)
-        apertures = [
-            CircularAperture((x0, y0), r=r) for r in radii
-        ]
+        apertures = [CircularAperture((x0, y0), r=r) for r in radii]
 
         fluxes = []
+        areas = []
 
         for ap in apertures:
             phot = aperture_photometry(data_slice, ap)
-            aperture_flux = phot["aperture_sum"][0]
-            fluxes.append(aperture_flux)
+            fluxes.append(phot["aperture_sum"][0])
+            areas.append(ap.area)
 
         cum_flux = np.array(fluxes)
-        flux_arr = np.diff(cum_flux, prepend=0.0)
-        radii_kpc = radii*self.kpc_pxl
+        cum_area = np.array(areas)
 
-        return radii_kpc, flux_arr, cum_flux
+        ring_flux = np.diff(cum_flux, prepend=0.0)
+
+        ring_area = np.diff(cum_area, prepend=0.0)
+
+
+        sb_arr = ring_flux / ring_area
+        
+        arcsec_per_px = 0.5  # Pixel-Skala in arcsec/px
+        ring_area_arcsec2 = ring_area * (arcsec_per_px ** 2)
+        sb_arr = ring_flux / ring_area_arcsec2
+
+
+        radii_kpc = radii * self.kpc_pxl
+
+        return radii_kpc, sb_arr, cum_flux
