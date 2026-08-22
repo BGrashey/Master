@@ -15,4 +15,4 @@
 #export PYTHONPATH=$PYTHONPATH:/data/hetdex/u/bgrashey/notebooks/
 
 # --- Skript ausführen ---
-/data/backup/hetdex/u/bgrashey/micromamba run -p /data/backup/hetdex/u/bgrashey/envs/cnn python fof_execution.py
+/data/backup/hetdex/u/bgrashey/micromamba run -p /data/backup/hetdex/u/bgrashey/envs/cnn python fof_execution_5.py

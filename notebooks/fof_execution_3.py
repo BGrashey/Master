@@ -6,9 +6,9 @@ from astropy.io import fits
 
 from tools.fof_min import fof_minimal_zarr, catalog_to_wcs_table
 
-sn_cube_path = "/data/hetdex/u/bgrashey/cubes/injected_2.zarr"
+sn_cube_path = "/data/hetdex/u/bgrashey/cubes/injected_3.zarr"
 fits_header_path = "/data/hetdex/u/bgrashey/cubes/ssa22_fullfp_stack.fits"
-output_catalog_path = "/data/hetdex/u/bgrashey/data_/completeness_cat_02.fits"
+output_catalog_path = "/data/hetdex/u/bgrashey/data_/completeness_cat_03.fits"
 sn_threshold = 0.5
 linking_length = 2
 

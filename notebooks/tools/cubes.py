@@ -137,24 +137,32 @@ import numpy as np
 from astropy.io import fits
 
 def fits_ifu_to_zarr(fits_path, zarr_path, chunks=(100, 128, 128)):
-    root = zarr.open_group(zarr_path, mode="w")
+    # mode="a" oder mode="w-" verhindert den rmtree-Bug bei nicht existierenden Pfaden
+    root = zarr.open_group(zarr_path, mode="a")
 
     with fits.open(fits_path) as hdul:
         for i, hdu in enumerate(hdul):
             if hdu.data is None:
                 continue
-            name = hdu.name or f"ext_{i}"
+            name = hdu.name if hdu.name else f"ext_{i}"
             
             # Chunks nur für 3D-Würfel anpassen, sonst auto
             c = chunks if hdu.data.ndim == 3 else "auto"
             
+            # FITS-Daten sind Big-Endian -> in native Byteorder konvertieren
+            data = hdu.data
+            if data.dtype.byteorder not in ('=', '|'):
+                data = data.byteswap().view(data.dtype.newbyteorder('='))
+            
             arr = root.create_array(
                 name,
-                data=hdu.data,
+                data=data,
                 chunks=c,
-                compressors=None,
+                overwrite=True  # Überschreibt Arrays, falls mode="a" genutzt wird
             )
-            arr.attrs["fits_header"] = dict(hdu.header)
-            print(f"  {name}: {hdu.data.shape}, chunks={arr.chunks}")
+            
+            # FITS-Header bereinigen (nur Strings/Zahlen, keine Duplikate/Kommentare)
+            arr.attrs["fits_header"] = {k: v for k, v in hdu.header.items() if k and k != "COMMENT" and k != "HISTORY"}
+            print(f"  {name}: {data.shape}, chunks={arr.chunks}")
 
-    print(zarr.open(zarr_path).tree())
+    print(root.tree())

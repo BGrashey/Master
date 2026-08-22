@@ -38,19 +38,24 @@ chunks = [(i, min(i + chunk_size, nz)) for i in range(0, nz, chunk_size)]
 
 fov_mask = build_fov_mask(nz, ny, nx, wcs, reg_file=region)
 
+"""
+def inject_sources_into_cube(
+    existing_cube,
+    positions,
+    flux_bins,
+    sigma_range=(1, 10),
+    sigma_lam=10,
+    elipticity_range=(0.55, 1),
+    theta_range=(0, 180),
+):
+"""
+
 bins = [
-    (1.000e-04, 3.162e-04),
-    (3.162e-04, 1.000e-03),
-    (1.000e-03, 3.162e-03),
-    (3.162e-03, 1.000e-02),
-    (1.000e-02, 3.162e-02),
-    (3.162e-02, 1.000e-01),
-    (1.000e-01, 3.162e-01),
-    (3.162e-01, 1.000e+00),
-    (1.000e+00, 3.162e+00),
-    (3.162e+00, 1.000e+01),
-    (1.000e+01, 1.000e+02),
-    (1.000e+02, 1.000e+03),
+    (1.0000, 1.5849),
+    (1.5849, 2.5119),
+    (2.5119, 3.9811),
+    (3.9811, 6.3096),
+    (6.3096, 10.0000),
 ]
 
 positions = generate_positions(
@@ -79,14 +84,14 @@ del error_cube, mask
 
 save_cube_fits(
     cube=flux_cube,
-    outpath="/data/hetdex/u/bgrashey/cubes/test_.fits",
+    outpath="/data/hetdex/u/bgrashey/cubes/test_3.fits",
     header_params=header
 )
 
 df_output = pd.DataFrame(new_catalog)
 tbl = Table.from_pandas(df_output)
-tbl.write("/data/hetdex/u/bgrashey/data_/injected_sources_log_bins.fits", overwrite=True)
+tbl.write("/data/hetdex/u/bgrashey/data_/injected_sources_3.fits", overwrite=True)
 
 from tools.cubes import fits_ifu_to_zarr
 
-fits_ifu_to_zarr("/data/hetdex/u/bgrashey/cubes/test_.fits", "/data/hetdex/u/bgrashey/cubes/injected_new.zarr")
+fits_ifu_to_zarr("/data/hetdex/u/bgrashey/cubes/test_3.fits", "/data/hetdex/u/bgrashey/cubes/injected_3.zarr")

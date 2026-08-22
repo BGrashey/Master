@@ -310,11 +310,18 @@ def inject_sources_into_cube(
         new_sources_catalog.append({
             'id':          source_counter,
             'chunk_index': pos['chunk_index'],
-            "bin_index" : pos["bin_index"],
+            'bin_index':   pos['bin_index'],
+            'x_pix':       pos['x_pix'],
+            'y_pix':       pos['y_pix'],
+            'z_pix':       pos['z_pix'],
             'ra':          pos['ra'],
             'dec':         pos['dec'],
             'z':           pos['z'],
             'flux':        flux,
+            'sigma':       sigma,
+            'elipticity':  elipticity,
+            'theta':       theta,
+            'sigma_lam':   sigma_lam
         })
         source_counter += 1
 
