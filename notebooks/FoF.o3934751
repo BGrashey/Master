@@ -1,0 +1,35 @@
+-> Lade Flux-Cube und WCS...
+-> Lade realen Katalog und erstelle FOV-Maske...
+-> Generiere Positionen für Testgalaxien...
+-> Injiziere 5250 Quellen...
+-> Lade Error-Cube und berechne S/N...
+-> Schreibe S/N-Cube nach Zarr (/data/hetdex/u/bgrashey/cubes/temp_injected.zarr)...
+Traceback (most recent call last):
+  File "/data/hetdex/u/bgrashey/git/Master/notebooks/simulation_fof.py", line 195, in <module>
+    run_completeness_pipeline()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/data/hetdex/u/bgrashey/git/Master/notebooks/simulation_fof.py", line 144, in run_completeness_pipeline
+    zarr.save_array(temp_zarr_path, flux_cube, chunks=zarr_chunk_shape)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/api/synchronous.py", line 297, in save_array
+    return sync(
+        async_api.save_array(
+    ...<6 lines>...
+        )
+    )
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/sync.py", line 158, in sync
+    raise return_result
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/core/sync.py", line 118, in _runner
+    return await coro
+           ^^^^^^^^^^
+  File "/data/backup/hetdex/u/bgrashey/envs/cnn/lib/python3.13/site-packages/zarr/api/asynchronous.py", line 476, in save_array
+    new = await AsyncArray._create(
+                ~~~~~~~~~~~~~~~~~~^
+        store_path,
+        ^^^^^^^^^^^
+    ...<5 lines>...
+        **kwargs,
+        ^^^^^^^^^
+    )
+    ^
+TypeError: zarr.core.array.AsyncArray._create() got multiple values for keyword argument 'chunks'
