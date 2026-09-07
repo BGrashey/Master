@@ -139,20 +139,22 @@ def run_completeness_pipeline():
 
     zarr_chunk_shape = (min(50, nz), 200, 200)
 
-    # Universell kompatibles Schreiben für Zarr v2 und v3
-    if hasattr(zarr, "save_array"):
-        zarr.save_array(temp_zarr_path, flux_cube, chunks=zarr_chunk_shape)
-    elif hasattr(zarr, "save"):
-        zarr.save(temp_zarr_path, flux_cube)
-    else:
-        root = zarr.open_group(temp_zarr_path, mode="w")
-        z_arr = root.create_dataset("data", data=flux_cube, chunks=zarr_chunk_shape, dtype=np.float32)
+    # Array explizit erstellen und befüllen
+    z_arr = zarr.create_array(
+        temp_zarr_path,
+        shape=flux_cube.shape,
+        chunks=zarr_chunk_shape,
+        dtype=np.float32,
+        overwrite=True,
+    )
+    z_arr[:] = flux_cube
 
     # Flux-Cube aus dem RAM entfernen, um Speicher für Dask freizumachen
     del flux_cube
 
     print("-> Initialisiere Dask-Array und berechne FoF-Graphen...")
-    sn_cube = da.from_zarr(temp_zarr_path)
+    # Direkt das geöffnete Zarr-Objekt an Dask übergeben:
+    sn_cube = da.from_zarr(z_arr)
     binary_mask = sn_cube > sn_threshold
 
     catalog_delayed = fof_minimal_zarr(binary_mask, linking_length=linking_length)
