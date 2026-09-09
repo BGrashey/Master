@@ -334,7 +334,7 @@ class Stacking:
                 continue
             
             subtracted = subtract_sky_per_slice(subcube)
-            contsub = subtract_continuum(subtracted)
+            contsub = subtract_continuum(subcube) # wir lassen sky subtraction wegen oversubtraction erstmal weg
             img = make_narrowband(contsub)
             scaled, foot = scale_source(img, sub_wcs, ra, dec, z, kpc_per_pixel=self.kpc_pxl, npix=self.npix)
             images.append(scaled)
