@@ -8,7 +8,7 @@ from astropy.io import fits
 from astropy.cosmology import Planck18
 import astropy.units as u
 
-from reproject import reproject_exact
+from reproject import reproject_interp as reproject_exact # instead of exact for performance
 
 from photutils.aperture import (
     CircularAperture,
@@ -306,7 +306,7 @@ class Stacking:
         self.wave_pix = np.arange(self.n_wave) - spec_width
         self.stacked_cube = None  # wird von stack() befuellt
 
-    def stack(self, do_sky_sub=False, verbose=True):
+    def stack(self, do_sky_sub=False, do_cont_sub=False, normalize=False, verbose=True):
         """
         do_sky_sub : bool
             Wie im Original-Skript wird die Sky-Subtraktion standardmaessig
@@ -326,6 +326,10 @@ class Stacking:
             ra = self.catalog[i][col_ra]
             dec = self.catalog[i][col_dec]
             z = self.catalog[i][col_z]
+            
+            col_lum = None
+            if normalize:
+                col_lum = _find_col(self.catalog, COLNAMES["luminosity"])
 
             subcube, sub_wcs = prepare_subcube(
                 ra, dec, z, self.cube, width=self.width, spec_width=self.spec_width
@@ -335,11 +339,23 @@ class Stacking:
                 n_skipped += 1
                 continue
 
+            if normalize:
+                L = float(self.catalog[i][col_lum])
+ 
+                if not np.isfinite(L) or L <= 0:
+                    n_skipped += 1
+                    continue
+ 
             if do_sky_sub:
                 subcube = subtract_sky_per_slice(subcube)
-
-            contsub = subtract_continuum(subcube)  # noch FLUX_UNIT
-            sb_cube = flux_to_sb(contsub)  # jetzt SB_UNIT
+            
+            if do_cont_sub:
+                subcube = subtract_continuum(subcube)  # noch FLUX_UNIT
+            
+            sb_cube = flux_to_sb(subcube)  # jetzt SB_UNIT
+ 
+            if normalize:
+                sb_cube = sb_cube / L
 
             target_wcs = make_wcs(ra, dec, z, kpc_per_pixel=self.kpc_pxl, npix=self.npix)
 
@@ -362,10 +378,10 @@ class Stacking:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            weighted_stack = (
-                np.nansum(cube_stack * foot_stack, axis=0)
-                / np.nansum(foot_stack, axis=0)
-            )
+            valid = np.isfinite(cube_stack)
+            foot_stack_masked = np.where(valid, foot_stack, 0.0)
+            cube_filled = np.where(valid, cube_stack, 0.0)
+            weighted_stack = np.nansum(cube_filled * foot_stack_masked, axis=0) / np.nansum(foot_stack_masked, axis=0)
 
         if verbose:
             print(f"Skipped: {n_skipped}")
@@ -375,7 +391,7 @@ class Stacking:
         self.stacked_cube = weighted_stack
         return weighted_stack
 
-    def narrowband_from_cube(self, half_width=9, mode="mean", stacked_cube=None):
+    def narrowband_from_cube(self, half_width=15, mode="sum", stacked_cube=None):
         """
         Erzeugt ein Schmalband (NB)-Bild aus dem gestackten Cube, zentriert
         auf den mittleren Kanal (Linienmitte).
