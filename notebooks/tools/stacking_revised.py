@@ -50,6 +50,21 @@ def flux_to_sb(cube_or_img):
     """
     return np.asarray(cube_or_img, dtype=float) / PIXEL_AREA_ARCSEC2
 
+from astropy.modeling.models import Moffat2D, Gaussian2D
+
+def make_source_psf(shape, fwhm_arcsec, pixel_scale=0.5, beta=3.):
+
+    ny, nx = shape
+    center_y, center_x = (ny - 1) / 2.0, (nx - 1) / 2.0
+    fwhm_pix = fwhm_arcsec / pixel_scale
+    
+    y, x = np.mgrid[:ny, :nx]
+    
+    gamma = fwhm_pix / (2.0 * np.sqrt(2.0 ** (1.0 / beta) - 1.0))
+    psf = Moffat2D(amplitude=1.0, x_0=center_x, y_0=center_y, gamma=gamma, alpha=beta)(x, y)
+        
+    return psf / np.nansum(psf)
+
 
 def sb_to_flux(cube_or_img):
     """Kehrfunktion zu flux_to_sb (SB_UNIT -> FLUX_UNIT pro Original-Pixel)."""
@@ -305,6 +320,7 @@ class Stacking:
         # relativer Pixel-Index zur Linienmitte, z.B. -25..24
         self.wave_pix = np.arange(self.n_wave) - spec_width
         self.stacked_cube = None  # wird von stack() befuellt
+        self.stacked_psf = None
 
     def stack(self, do_sky_sub=False, do_cont_sub=False, normalize=False, verbose=True):
         """
@@ -421,44 +437,113 @@ class Stacking:
                 nb = np.nanmean(stacked_cube[sel], axis=0)
             elif mode == "sum":
                 nb = np.nansum(stacked_cube[sel], axis=0)
+            elif mode == "median":
+                nb = np.nanmedian(stacked_cube[sel], axis=0)
             else:
                 raise ValueError("mode muss 'mean' oder 'sum' sein")
 
         return nb
+    
+    def stack_psf(self):
+        
+        col_ra = _find_col(self.catalog, COLNAMES["ra"])
+        col_dec = _find_col(self.catalog, COLNAMES["dec"])
+        col_z = _find_col(self.catalog, COLNAMES["z"])
+        
+        psf_stack = []
+        foot_stack = []
+        n_skipped = 0
+        
+        ny_sub, nx_sub = 2 * self.width, 2 * self.width
+        
+        for i in range(len(self.catalog)):
+            ra = self.catalog[i][col_ra]
+            dec = self.catalog[i][col_dec]
+            z = self.catalog[i][col_z]
+            
+            subcube, sub_wcs = prepare_subcube(
+                ra, dec, z, self.cube, width=self.width, spec_width=self.spec_width
+            )
+            if subcube is None:
+                n_skipped += 1
+                continue
+            
+            fwhm = 1.5
+            if "psf" in self.catalog.colnames:
+                val = self.catalog[i]["psf"]
+                if np.isfinite(val) and val > 0:
+                    fwhm = float(val)
+            
+            psf_raw = make_source_psf(
+                shape=(ny_sub, nx_sub),
+                fwhm_arcsec=fwhm,
+            )
+            
+            target_wcs = make_wcs(ra, dec, z, kpc_per_pixel=self.kpc_pxl, npix=self.npix)
+            regrid_psf, foot_psf = scale_slice(psf_raw, sub_wcs, target_wcs, self.npix)
+            s = np.nansum(regrid_psf)
+            if s>0:
+                regrid_psf /= s
+                
+            psf_stack.append(regrid_psf)
+            foot_stack.append(foot_psf)
+            
+            psf_stack = np.array(psf_stack)
+            foot_stack = np.array(foot_stack)
+            
+            weighted_psf = np.nansum(psf_stack * foot_stack, axis=0) / np.nansum(foot_stack, axis=0)
+            
+            self.stacked_psf = weighted_psf / np.nansum(weighted_psf)
+            
+            return self.stacked_psf
+                                                  
 
-    def cog(self, img, r_max=12):
+    def extract_sb_profile(
+        self, img, error_map=None, center=None, r_max=40, dr_px=1.5, kpc_per_px=1.
+    ):
+        """Extrahiert ein 1D-Oberflaechenhelligkeitsprofil aus einem LAE-Stack.
+
+        Parameters
+        ----------
+        img : 2D array
+            Gestacktes Bild in SB_UNIT (z.B. erg/s/cm^2/arcsec^2).
+        error_map : 2D array, optional
+            Varianz- oder Standardabweichungs-Map des Stacks.
+        center : tuple (x, y), optional
+            Festes Zentrum (z.B. Bildmitte). Falls None, wird Bildmitte genutzt.
+        r_max_px : float
+            Maximaler Radius in Pixeln (sollte 40-60 kpc abdecken).
+        dr_px : float
+            Schrittweite der Ringe.
         """
-        Radiales Oberflaechenhelligkeits-Profil ("curve of growth").
-        Erwartet ein 2D-Bild in SB_UNIT (z.B. aus narrowband_from_cube).
+        if center is None:
+            ny, nx = img.shape
+            center = ((nx - 1) / 2.0, (ny - 1) / 2.0)
 
-        Rueckgabe:
-            radii_kpc   : Ring-Radien in kpc
-            sb_profile  : MITTLERE Oberflaechenhelligkeit pro Ring (SB_UNIT)
-            cum_sb_sum  : Summe der SB-Werte innerhalb der kumulativen
-                          Apertur (kein echter Fluss - nur zur Diagnose
-                          des Aufbaus einer Curve-of-Growth geeignet)
-        """
-        data_slice = np.nan_to_num(img, nan=0.0, posinf=0.0, neginf=0.0)
-        x0, y0 = centroid_com(data_slice)
+        r_edges = np.arange(1.0, r_max + dr_px, dr_px)
 
-        radii = np.arange(2, r_max, 1)
-
+        r_eff = []
         sb_profile = []
-        cum_sb_sum = []
+        sb_err = []
 
-        for idx, r in enumerate(radii):
-            if idx == 0:
-                region = CircularAperture((x0, y0), r=r)
-            else:
-                region = CircularAnnulus((x0, y0), r_in=radii[idx - 1], r_out=r)
+        for r_in, r_out in zip(r_edges[:-1], r_edges[1:]):
+            annulus = CircularAnnulus(center, r_in=r_in, r_out=r_out)
+            stats = ApertureStats(img, annulus, error=error_map)
 
-            stats = ApertureStats(data_slice, region)
+            r_mid = np.sqrt(0.5 * (r_in**2 + r_out**2))
+            r_eff.append(r_mid)
+
             sb_profile.append(stats.mean)
 
-            full_ap = CircularAperture((x0, y0), r=r)
-            phot = aperture_photometry(data_slice, full_ap)
-            cum_sb_sum.append(phot["aperture_sum"][0])
+            if error_map is not None:
+                sb_err.append(stats.mean_error)
+            else:
+                sb_err.append(stats.std / np.sqrt(stats.sum_aper_area.value))
 
-        radii_kpc = radii * self.kpc_pxl
+        r_arcsec = np.array(r_eff) * kpc_per_px
 
-        return radii_kpc, np.array(sb_profile), np.array(cum_sb_sum)
+        return (
+            r_arcsec,
+            np.array(sb_profile),
+            np.array(sb_err),
+        )
