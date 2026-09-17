@@ -8,7 +8,7 @@ from astropy.io import fits
 from astropy.cosmology import Planck18
 import astropy.units as u
 
-from reproject import reproject_interp as reproject_exact # instead of exact for performance
+from reproject import reproject_exact as reproject_exact # instead of exact for performance or interp
 
 from photutils.aperture import (
     CircularAperture,
@@ -335,6 +335,8 @@ class Stacking:
 
         cube_stack = []  # pro Quelle: (n_wave, npix, npix), SB_UNIT
         foot_stack = []  # pro Quelle: (n_wave, npix, npix)
+        
+        z_ref = np.median(self.catalog[col_z])
 
         n_skipped = 0
 
@@ -368,7 +370,7 @@ class Stacking:
             if do_cont_sub:
                 subcube = subtract_continuum(subcube)  # noch FLUX_UNIT
             
-            sb_cube = flux_to_sb(subcube)  # jetzt SB_UNIT
+            sb_cube = flux_to_sb(subcube) * ((1.0 + z_ref) / (1.0 + z)) ** 3  # jetzt SB_UNIT
  
             if normalize:
                 sb_cube = sb_cube / L
@@ -468,7 +470,7 @@ class Stacking:
                 n_skipped += 1
                 continue
             
-            fwhm = 1.5
+            fwhm = 2.5
             if "psf" in self.catalog.colnames:
                 val = self.catalog[i]["psf"]
                 if np.isfinite(val) and val > 0:
@@ -547,3 +549,428 @@ class Stacking:
             np.array(sb_profile),
             np.array(sb_err),
         )
+    
+    
+from photutils.segmentation import detect_sources
+from photutils.background import MADStdBackgroundRMS
+from scipy.ndimage import binary_dilation
+
+def create_neighbor_mask(subcube, nsigma=3.0, npixels=4, target_protect_radius_pix=4, dilation_iters=2):
+    """
+    Erstellt eine 2D-Bool-Maske (True = maskieren / verwerfen).
+    Maskiert helle Nachbarn, schuetzt aber das Bildzentrum (Zielquelle).
+    """
+    n_wave, ny, nx = subcube.shape
+    
+    # 1. 2D-Detektionsbild erzeugen (Median unterdrueckt schmale Linienemitte, zeigt Kontinuum)
+    det_img = np.nanmedian(subcube, axis=0)
+    
+    # 2. Hintergrundrauschen robust bestimmen
+    bkg_rms = MADStdBackgroundRMS().calc_background_rms(det_img)
+    threshold = nsigma * bkg_rms
+    
+    # 3. Quellen detektieren (zusammenhaengende Pixel > threshold)
+    segm = detect_sources(det_img, threshold=threshold, npixels=npixels)
+    
+    if segm is None:
+        return np.zeros((ny, nx), dtype=bool)
+    
+    # 4. Maske aller Quellen holen (True = detektierte Quelle)
+    source_mask = segm.data > 0
+    
+    # 5. Maske leicht vergroessern (PSF-Wings abdecken)
+    if dilation_iters > 0:
+        source_mask = binary_dilation(source_mask, iterations=dilation_iters)
+        
+    # 6. WICHTIG: Die Zielquelle im Zentrum schuetzen!
+    yc, xc = (ny - 1) / 2.0, (nx - 1) / 2.0
+    yy, xx = np.mgrid[:ny, :nx]
+    dist_from_center = np.sqrt((xx - xc)**2 + (yy - yc)**2)
+    
+    # Zentrum freigeben: Zielquelle wird NICHT maskiert
+    source_mask[dist_from_center <= target_protect_radius_pix] = False
+    
+    return source_mask    
+    
+    
+def extract_all_subcubes(catalog, zarr_cube, width=25, spec_width=25):
+    """
+    Schneidet fuer jede gueltige Quelle im Katalog einen Subcube aus
+    und sammelt sie zusammen mit WCS und Metadaten in einer Liste.
+    """
+    col_ra = _find_col(catalog, COLNAMES["ra"])
+    col_dec = _find_col(catalog, COLNAMES["dec"])
+    col_z = _find_col(catalog, COLNAMES["z"])
+    has_lum = any(c in catalog.colnames for c in COLNAMES["luminosity"])
+    col_lum = _find_col(catalog, COLNAMES["luminosity"]) if has_lum else None
+
+    subcube_records = []
+    n_skipped = 0
+
+    for i in range(len(catalog)):
+        row = catalog[i]
+        ra = row[col_ra]
+        dec = row[col_dec]
+        z = row[col_z]
+        lum = float(row[col_lum]) if col_lum else np.nan
+
+        subcube, sub_wcs = prepare_subcube(
+            ra, dec, z, zarr_cube, width=width, spec_width=spec_width
+        )
+
+        if subcube is None:
+            n_skipped += 1
+            continue
+
+        subcube_records.append({
+            "subcube": subcube,   # 3D numpy array
+            "wcs": sub_wcs,       # 2D celestial WCS
+            "ra": ra,
+            "dec": dec,
+            "z": z,
+            "lum": lum,
+        })
+
+    print(f"Subcubes extrahiert: {len(subcube_records)} (Ausserhalb/Skipped: {n_skipped})")
+    return subcube_records
+
+
+def extract_all_subcubes_masked(catalog, zarr_cube, width=25, spec_width=25, mask_neighbors=True):
+    col_ra = _find_col(catalog, COLNAMES["ra"])
+    col_dec = _find_col(catalog, COLNAMES["dec"])
+    col_z = _find_col(catalog, COLNAMES["z"])
+    has_lum = any(c in catalog.colnames for c in COLNAMES["luminosity"])
+    col_lum = _find_col(catalog, COLNAMES["luminosity"]) if has_lum else None
+
+    subcube_records = []
+    n_skipped = 0
+
+    for i in range(len(catalog)):
+        row = catalog[i]
+        ra = row[col_ra]
+        dec = row[col_dec]
+        z = row[col_z]
+        lum = float(row[col_lum]) if col_lum else np.nan
+
+        subcube, sub_wcs = prepare_subcube(
+            ra, dec, z, zarr_cube, width=width, spec_width=spec_width
+        )
+
+        if subcube is None:
+            n_skipped += 1
+            continue
+
+        # --- Automatische Nachbar-Maskierung ---
+        if mask_neighbors:
+            mask = create_neighbor_mask(
+                subcube, 
+                nsigma=3.0, 
+                npixels=4, 
+                target_protect_radius_pix=4, # ca. 2.0" bei 0.5"/px
+                dilation_iters=2
+            )
+            # Maskierte Spalten/Pixel ueber alle Kanaele auf NaN setzen:
+            subcube = subcube.copy()
+            subcube[:, mask] = np.nan
+
+        subcube_records.append({
+            "subcube": subcube,
+            "wcs": sub_wcs,
+            "ra": ra,
+            "dec": dec,
+            "z": z,
+            "lum": lum,
+        })
+
+    print(f"Subcubes extrahiert: {len(subcube_records)} (Ausserhalb/Skipped: {n_skipped})")
+    return subcube_records
+
+
+
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+class SourceMasker:
+    def __init__(self, img2d, title="", default_radius=4.0):
+        self.img = img2d
+        self.default_radius = default_radius
+        self.circles = []
+        self.patches = []
+
+        self.fig, self.ax = plt.subplots(figsize=(6, 6))
+        
+        # Astronomische Skalierung
+        vmin, vmax = np.nanpercentile(img2d, [5, 99])
+        self.ax.imshow(img2d, origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
+        self.ax.set_title(f"{title}\nLinks: Kreis | Rechts: Undo | 'q' / Schließen: Weiter")
+        
+        # Zielquelle in der Mitte markieren
+        ny, nx = img2d.shape
+        self.ax.plot((nx - 1) / 2.0, (ny - 1) / 2.0, "r+", markersize=14, markeredgewidth=2, label="Target")
+        self.ax.legend(loc="upper right")
+
+        self.cid_click = self.fig.canvas.mpl_connect("button_press_event", self.on_click)
+        self.cid_key = self.fig.canvas.mpl_connect("key_press_event", self.on_key)
+
+    def on_click(self, event):
+        if event.inaxes != self.ax:
+            return
+        if event.button == 1:  # Linksklick: Maske setzen
+            xc, yc = event.xdata, event.ydata
+            patch = plt.Circle((xc, yc), self.default_radius, color="red", alpha=0.45)
+            self.ax.add_patch(patch)
+            self.patches.append(patch)
+            self.circles.append((xc, yc, self.default_radius))
+            self.fig.canvas.draw()
+        elif event.button == 3 and self.patches:  # Rechtsklick: Letzten Kreis löschen
+            self.patches.pop().remove()
+            self.circles.pop()
+            self.fig.canvas.draw()
+
+    def on_key(self, event):
+        if event.key in ["q", "enter", "escape"]:
+            plt.close(self.fig)
+
+    def get_mask(self):
+        ny, nx = self.img.shape
+        mask = np.zeros((ny, nx), dtype=bool)
+        yy, xx = np.mgrid[:ny, :nx]
+        for xc, yc, r in self.circles:
+            mask |= ((xx - xc) ** 2 + (yy - yc) ** 2) <= r ** 2
+        return mask
+    
+    
+    
+    
+    
+def mask_subcubes_interactively(subcube_list, default_radius=4.0):
+    """
+    Geht die Liste von Subcubes der Reihe nach durch.
+    Fuegt jedem Element in der Liste den Key 'mask' hinzu.
+    """
+    total = len(subcube_list)
+    print(f"Starte Maskierung fuer {total} Subcubes...")
+    print("Bedienung: Linksklick = Kreis setzen | Rechtsklick = Undo | 'q' = Naechste Quelle")
+
+    for idx, item in enumerate(subcube_list):
+        # Falls schon eine Maske existiert und du nicht ueberschreiben willst:
+        if "mask" in item and item["mask"] is not None:
+            continue
+
+        cube = item["subcube"]
+        # Kontinuums-/Nachbar-Detektionsbild via Median ueber Wellenlaenge
+        det_img = np.nanmedian(cube, axis=0)
+
+        title = f"Quelle {idx + 1}/{total} (z = {item['z']:.3f})"
+        masker = SourceMasker(det_img, title=title, default_radius=default_radius)
+        
+        # Blockiert, bis das Fenster geschlossen wird
+        plt.show(block=True)
+
+        # Maske direkt im Dict abspeichern
+        item["mask"] = masker.get_mask()
+        
+        n_masked_pixels = np.sum(item["mask"])
+        print(f"[{idx + 1}/{total}] Gespeichert: {len(masker.circles)} Kreis(e), {n_masked_pixels} Pixel maskiert.")
+
+    return subcube_list
+
+import numpy as np
+import warnings
+
+class StackingFromSubcubes:
+    """
+    Stacking-Pipeline, die direkt mit einer Liste vorverarbeiteter,
+    maskierter Subcubes gefüttert wird.
+    Ergebnis ist wie im Original ein vollständiger 3D-Cube (n_wave, npix, npix).
+    """
+    def __init__(self, subcube_list, kpc_pxl=3, npix=50):
+        if not subcube_list:
+            raise ValueError("subcube_list darf nicht leer sein.")
+
+        self.subcubes = subcube_list
+        self.kpc_pxl = kpc_pxl
+        self.npix = npix
+        
+        # Spektrale Dimensionen aus dem ersten Cube auslesen
+        self.n_wave = self.subcubes[0]["subcube"].shape[0]
+        self.spec_width = self.n_wave // 2
+        self.wave_pix = np.arange(self.n_wave) - self.spec_width
+        
+        self.stacked_cube = None
+        self.stacked_psf = None
+
+    def stack(self, do_sky_sub=False, do_cont_sub=False, normalize=False, verbose=True):
+        z_ref = np.median([item["z"] for item in self.subcubes])
+
+        cube_stack = []  # (n_sources, n_wave, npix, npix)
+        foot_stack = []  # (n_sources, n_wave, npix, npix)
+        n_skipped = 0
+
+        for idx, item in enumerate(self.subcubes):
+            subcube = np.copy(item["subcube"])
+            sub_wcs = item["wcs"]
+            ra, dec, z = item["ra"], item["dec"], item["z"]
+            lum = item.get("lum", np.nan)
+
+            # Maskierte Pixel berücksichtigen, falls nicht schon im Array auf NaN gesetzt
+            if "mask" in item and item["mask"] is not None and np.any(item["mask"]):
+                subcube[:, item["mask"]] = np.nan
+
+            if normalize:
+                if not np.isfinite(lum) or lum <= 0:
+                    n_skipped += 1
+                    continue
+
+            # Sky- und Kontinuum-Subtraktion wie im Original
+            if do_sky_sub:
+                subcube = subtract_sky_per_slice(subcube)
+
+            if do_cont_sub:
+                subcube = subtract_continuum(subcube)
+
+            # Fluss -> Oberflächenhelligkeit + Cosmological Dimming
+            sb_cube = flux_to_sb(subcube) * ((1.0 + z_ref) / (1.0 + z)) ** 3
+
+            if normalize:
+                sb_cube = sb_cube / lum
+
+            # Ziel-WCS auf Basis der (ggf. rezentrierten) RA/Dec
+            target_wcs = make_wcs(ra, dec, z, kpc_per_pixel=self.kpc_pxl, npix=self.npix)
+
+            regridded = np.full((self.n_wave, self.npix, self.npix), np.nan)
+            footprint = np.zeros((self.n_wave, self.npix, self.npix))
+
+            # Jede Wellenlängenscheibe einzeln reprojizieren (wie im alten Skript)
+            for k in range(self.n_wave):
+                regrid_k, foot_k = scale_slice(sb_cube[k], sub_wcs, target_wcs, self.npix)
+                regridded[k] = regrid_k
+                footprint[k] = foot_k
+
+            cube_stack.append(regridded)
+            foot_stack.append(footprint)
+
+        if len(cube_stack) == 0:
+            raise RuntimeError("Keine gültigen Cubes zum Stacken übrig.")
+
+        cube_stack = np.array(cube_stack)
+        foot_stack = np.array(foot_stack)
+
+        # Footprint-gewichtete Mittelung
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            valid = np.isfinite(cube_stack)
+            foot_stack_masked = np.where(valid, foot_stack, 0.0)
+            cube_filled = np.where(valid, cube_stack, 0.0)
+
+            foot_sum = np.nansum(foot_stack_masked, axis=0)
+            weighted_stack = np.where(
+                foot_sum > 0,
+                np.nansum(cube_filled * foot_stack_masked, axis=0) / foot_sum,
+                np.nan
+            )
+
+        if verbose:
+            print(f"Skipped: {n_skipped}")
+            print(f"Stacked cube shape: {weighted_stack.shape}  (n_wave, npix, npix)")
+            print(f"Stacked cube units: {SB_UNIT}")
+
+        self.stacked_cube = weighted_stack
+        return weighted_stack
+
+    def narrowband_from_cube(self, half_width=15, mode="sum", stacked_cube=None):
+        """Unverändert aus deinem Original-Code."""
+        if stacked_cube is None:
+            if self.stacked_cube is None:
+                raise RuntimeError("Noch kein gestacktes Cube vorhanden - erst stack() aufrufen.")
+            stacked_cube = self.stacked_cube
+
+        n_wave = stacked_cube.shape[0]
+        center = n_wave // 2
+        sel = slice(max(center - half_width, 0), min(center + half_width + 1, n_wave))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            if mode == "mean":
+                nb = np.nanmean(stacked_cube[sel], axis=0)
+            elif mode == "sum":
+                nb = np.nansum(stacked_cube[sel], axis=0)
+            elif mode == "median":
+                nb = np.nanmedian(stacked_cube[sel], axis=0)
+            else:
+                raise ValueError("mode muss 'mean', 'sum' oder 'median' sein")
+
+        return nb
+    
+    def extract_sb_profile(
+        self, img, error_map=None, center=None, r_min=1, r_max=40, n_bins=10, kpc_per_px=1.
+    ):
+        """Extrahiert ein 1D-Oberflaechenhelligkeitsprofil aus einem LAE-Stack.
+
+        Parameters
+        ----------
+        img : 2D array
+            Gestacktes Bild in SB_UNIT (z.B. erg/s/cm^2/arcsec^2).
+        error_map : 2D array, optional
+            Varianz- oder Standardabweichungs-Map des Stacks.
+        center : tuple (x, y), optional
+            Festes Zentrum (z.B. Bildmitte). Falls None, wird Bildmitte genutzt.
+        r_max_px : float
+            Maximaler Radius in Pixeln (sollte 40-60 kpc abdecken).
+        dr_px : float
+            Schrittweite der Ringe.
+        """
+        if center is None:
+            ny, nx = img.shape
+            center = ((nx - 1) / 2.0, (ny - 1) / 2.0)
+
+        r_edges = np.geomspace(r_min, r_max, n_bins+1)
+
+        r_eff = []
+        sb_profile = []
+        sb_err = []
+
+        for r_in, r_out in zip(r_edges[:-1], r_edges[1:]):
+            annulus = CircularAnnulus(center, r_in=r_in, r_out=r_out)
+            stats = ApertureStats(img, annulus, error=error_map)
+
+            r_mid = np.sqrt(0.5 * (r_in**2 + r_out**2))
+            r_eff.append(r_mid)
+
+            sb_profile.append(stats.mean)
+
+            if error_map is not None:
+                sb_err.append(stats.mean_error)
+            else:
+                sb_err.append(stats.std / np.sqrt(stats.sum_aper_area.value))
+
+        r_arcsec = np.array(r_eff) * kpc_per_px
+
+        return (
+            r_arcsec,
+            np.array(sb_profile),
+            np.array(sb_err),
+        )
+    
+def load_subcubes_npz(filename="subcubes_for_laptop.npz"):
+    data = np.load(filename, allow_pickle=True)
+    n_items = int(data["n_items"])
+    subcube_list = []
+
+    for i in range(n_items):
+        hdr = fits.Header.fromstring(str(data[f"wcs_hdr_{i}"]))
+        item = {
+            "subcube": data[f"cube_{i}"],
+            "wcs": WCS(hdr),
+            "ra": float(data[f"ra_{i}"]),
+            "dec": float(data[f"dec_{i}"]),
+            "z": float(data[f"z_{i}"]),
+            "lum": float(data[f"lum_{i}"]),
+            "mask": data[f"mask_{i}"] if f"mask_{i}" in data else None,
+        }
+        subcube_list.append(item)
+        
+    print(f"{len(subcube_list)} Subcubes erfolgreich geladen.")
+    return subcube_list
