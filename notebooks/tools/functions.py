@@ -290,9 +290,10 @@ def _load(path):
     fmt = "fits" if path.endswith((".fits", ".fit")) else "csv"
     return Table.read(path, format=fmt)
  
-def crossmatch(path1, path2, rad=2.5, dz_max=0.1, use_z=True):
-
+def crossmatch(path1, path2, rad=1.0, dz_max=0.007, use_z=True):
     t1, t2 = _load(path1), _load(path2)
+    
+    t2 = t2[t2["n_spax"] >= 6]
 
     cat1 = SkyCoord(
         ra=t1[_find_col(t1, COLNAMES["ra"])].data * u.deg,
@@ -303,16 +304,17 @@ def crossmatch(path1, path2, rad=2.5, dz_max=0.1, use_z=True):
         dec=t2[_find_col(t2, COLNAMES["dec"])].data * u.deg,
     )
 
-    i1, i2, _, _ = search_around_sky(cat1, cat2, rad * u.arcsec)
+    # cat1 -> idx_t1 | cat2 -> idx_t2
+    idx_t1, idx_t2, _, _ = search_around_sky(cat1, cat2, rad * u.arcsec)
 
     if use_z:
         z1 = np.asarray(t1[_find_col(t1, COLNAMES["z"])])
         z2 = np.asarray(t2[_find_col(t2, COLNAMES["z"])])
 
-        mask = np.abs(z1[i1] - z2[i2]) < dz_max
-        matched_idx = np.unique(i1[mask])
+        mask = np.abs(z1[idx_t1] - z2[idx_t2]) < dz_max
+        matched_idx = np.unique(idx_t1[mask])
     else:
-        matched_idx = np.unique(i1)
+        matched_idx = np.unique(idx_t1)
 
     t1["MATCHED"] = np.zeros(len(t1), dtype=bool)
     t1["MATCHED"][matched_idx] = True
