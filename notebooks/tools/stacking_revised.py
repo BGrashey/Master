@@ -470,7 +470,7 @@ class Stacking:
                 n_skipped += 1
                 continue
             
-            fwhm = 2.5
+            fwhm = 3.5
             if "psf" in self.catalog.colnames:
                 val = self.catalog[i]["psf"]
                 if np.isfinite(val) and val > 0:
