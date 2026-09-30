@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/data/hetdex/u/bgrashey/git/Master/notebooks/stacking.py", line 1, in <module>
+    from tools.stacking import StackingFromSubcubes, load_subcubes_npz
+  File "/data/hetdex/u/bgrashey/git/Master/notebooks/tools/stacking.py", line 11, in <module>
+    from reproject import reproject_exact
+ModuleNotFoundError: No module named 'reproject'

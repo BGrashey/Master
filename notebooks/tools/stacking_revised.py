@@ -367,9 +367,6 @@ class Stacking:
             if do_sky_sub:
                 subcube = subtract_sky_per_slice(subcube)
             
-            if do_cont_sub:
-                subcube = subtract_continuum(subcube)  # noch FLUX_UNIT
-            
             sb_cube = flux_to_sb(subcube) * ((1.0 + z_ref) / (1.0 + z)) ** 3  # jetzt SB_UNIT
  
             if normalize:
@@ -406,7 +403,12 @@ class Stacking:
             print(f"Stacked cube shape: {weighted_stack.shape}  (n_wave, npix, npix)")
             print(f"Stacked cube units: {SB_UNIT}")
 
+
+        if do_cont_sub:
+            weighted_stack = subtract_continuum(weighted_stack)  # noch FLUX_UNIT
+
         self.stacked_cube = weighted_stack
+        
         return weighted_stack
 
     def narrowband_from_cube(self, half_width=15, mode="sum", stacked_cube=None):
@@ -535,7 +537,7 @@ class Stacking:
             r_mid = np.sqrt(0.5 * (r_in**2 + r_out**2))
             r_eff.append(r_mid)
 
-            sb_profile.append(stats.mean)
+            sb_profile.append(stats.mean) #.mean
 
             if error_map is not None:
                 sb_err.append(stats.mean_error)
