@@ -830,9 +830,6 @@ class StackingFromSubcubes:
             if do_sky_sub:
                 subcube = subtract_sky_per_slice(subcube)
 
-            if do_cont_sub:
-                subcube = subtract_continuum(subcube)
-
             # Fluss -> Oberflächenhelligkeit + Cosmological Dimming
             sb_cube = flux_to_sb(subcube) * ((1.0 + z_ref) / (1.0 + z)) ** 3
 
@@ -879,7 +876,11 @@ class StackingFromSubcubes:
             print(f"Stacked cube shape: {weighted_stack.shape}  (n_wave, npix, npix)")
             print(f"Stacked cube units: {SB_UNIT}")
 
+        if do_cont_sub:
+            weighted_stack = subtract_continuum(weighted_stack)
+
         self.stacked_cube = weighted_stack
+        
         return weighted_stack
 
     def narrowband_from_cube(self, half_width=15, mode="sum", stacked_cube=None):
@@ -955,6 +956,51 @@ class StackingFromSubcubes:
             np.array(sb_profile),
             np.array(sb_err),
         )
+
+    def stack_psf(self):
+            
+        psf_stack = []
+        foot_stack = []
+        n_skipped = 0
+            
+        
+            
+        for idx, item in enumerate(self.subcubes):
+            subcube = np.copy(item["subcube"])
+            ra, dec, z = item["ra"], item["dec"], item["z"]   
+            sub_wcs = item["wcs"]
+
+            ny_sub, nx_sub = subcube.shape[0], subcube.shape[0]
+
+            fwhm = 2.
+
+            psf_val = item.get("psf", None)
+
+            if psf_val is not None and np.isfinite(psf_val) and psf_val > 0:
+                fwhm = float(psf_val)
+                
+            psf_raw = make_source_psf(
+                shape=(ny_sub, nx_sub),
+                fwhm_arcsec=fwhm,
+            )
+                
+            target_wcs = make_wcs(ra, dec, z, kpc_per_pixel=self.kpc_pxl, npix=self.npix)
+            regrid_psf, foot_psf = scale_slice(psf_raw, sub_wcs, target_wcs, self.npix)
+            s = np.nansum(regrid_psf)
+            if s>0:
+                regrid_psf /= s
+                    
+            psf_stack.append(regrid_psf)
+            foot_stack.append(foot_psf)
+                
+        psf_stack = np.array(psf_stack)
+        foot_stack = np.array(foot_stack)
+                
+        weighted_psf = np.nansum(psf_stack * foot_stack, axis=0) / np.nansum(foot_stack, axis=0)
+                
+        self.stacked_psf = weighted_psf / np.nansum(weighted_psf)
+                
+        return self.stacked_psf
     
 def load_subcubes_npz(filename="subcubes_for_laptop.npz"):
     data = np.load(filename, allow_pickle=True)
