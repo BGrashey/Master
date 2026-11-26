@@ -22,14 +22,17 @@ from scipy.optimize import curve_fit
 
 from scipy.spatial import cKDTree
 
+#plt.style.use("~/Desktop/Notebooks/thesis.mplstyle")
+
 
 COLNAMES = {
-    "ra":  ["ra", "RA", "Ra", "RAJ2000", "ra_vdfi", "ra_hetdex"],
-    "dec": ["dec", "DEC", "Dec", "DEJ2000", "dec_vdfi", "dec_hetdex"],
-    "z":   ["z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_vdfi", "z_hetdex", "redshift"],
+    "ra":  ["ra_vdfi", "ra", "RA", "Ra", "RAJ2000", "ra_vdfi", "ra_hetdex"],
+    "dec": ["dec_vdfi", "dec", "DEC", "Dec", "DEJ2000", "dec_vdfi", "dec_hetdex"],
+    "z":   ["z_vdfi", "z", "Z", "redshift", "REDSHIFT", "zspec", "ZSPEC", "z_spec", "z_vdfi", "z_hetdex", "redshift"],
     "flux":    ["flux", "Flux", "FLUX", "flux_lya"],
     "luminosity": ["lum", "luminosity", "luminosity_lae", "LUMINOSITY"],
     "completeness": ["completeness", "comp", "COMPLETENESS"],
+    "completeness_err": ["COMPLETENESS_ERR", "COMP_ERR"],
 }
  
 def _find_col(table, aliases):
@@ -43,9 +46,9 @@ def plot_cutout_grid(
     catalog,
     cube_file,
     output_file,
-    col_seg         = None,          # Optional, falls nicht vorhanden
+    col_seg         = None,          
     # Filter
-    filters         = None,          # Liste von Dicts wie CATALOG_FILTERS
+    filters         = None,  
     # Grid-Optionen
     cutout_size     = 20,
     cols_in_grid    = 5,
@@ -59,7 +62,7 @@ def plot_cutout_grid(
     cmap            = "inferno",
     # Titel
     title           = None,
-    label           = None,         # Spalte im Katalog mit bool werten
+    label           = None,         
 ):
     """
     Erstellt ein Cutout-Grid aus einem Katalog und einem FITS-Cube.
@@ -85,7 +88,6 @@ def plot_cutout_grid(
     if title is None:
         title = "Catalog"
 
-    # ── Hilfsfunktionen ───────────────────────────────────────────────────────
 
     def redshift_to_slice(redshift):
         lya_obs = 1216.0 * (1.0 + redshift)
@@ -101,27 +103,34 @@ def plot_cutout_grid(
         nz, ny, nx = cube_data.shape
         half = size // 2
         if z_slice < 0 or z_slice >= nz:
-            return None
+            return None, z_slice
+
+        z0 = max(z_slice - num_wave_slices, 0)
+        z1 = min(z_slice + num_wave_slices + 1, nz)
+
         x0, x1 = int(round(x)) - half, int(round(x)) - half + size
         y0, y1 = int(round(y)) - half, int(round(y)) - half + size
-        if num_wave_slices >= 1:
-            slice_img = cube_data[(z_slice-num_wave_slices):(z_slice+num_wave_slices), :, :]
-        else:
-            slice_img = cube_data[z_slice:z_slice+1, :, :]
-        #slice_img = np.nanmean(slice_img, axis=0)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=RuntimeWarning, message="Mean of empty slice")
-            slice_img = np.nanmean(slice_img, axis=0)
-        cutout = np.full((size, size), np.nan)
+
+        n_sl = z1 - z0
+        cutout_3d = np.full((n_sl, size, size), np.nan, dtype=float)
+
         sx0, sx1 = max(x0, 0), min(x1, nx)
         sy0, sy1 = max(y0, 0), min(y1, ny)
-        cx0 = sx0 - x0
-        cx1 = cx0 + (sx1 - sx0)
-        cy0 = sy0 - y0
-        cy1 = cy0 + (sy1 - sy0)
+        cx0, cx1 = sx0 - x0, (sx0 - x0) + (sx1 - sx0)
+        cy0, cy1 = sy0 - y0, (sy0 - y0) + (sy1 - sy0)
+
         if sx1 > sx0 and sy1 > sy0:
-            cutout[cy0:cy1, cx0:cx1] = slice_img[sy0:sy1, sx0:sx1]
-        return cutout.astype(float)
+            cutout_3d[:, cy0:cy1, cx0:cx1] = cube_data[z0:z1, sy0:sy1, sx0:sx1]
+
+        center_vals = np.nanmax(cutout_3d[:, half-1:half+2, half-1:half+2], axis=(1, 2))
+
+        if np.all(np.isnan(center_vals)):
+            return None, z_slice
+
+        best_idx = int(np.nanargmax(center_vals))
+        best_z_slice = z0 + best_idx
+
+        return cutout_3d[best_idx], best_z_slice
 
     def apply_filters(cat, filters):
         mask = np.ones(len(cat), dtype=bool)
@@ -144,7 +153,6 @@ def plot_cutout_grid(
             print(f"  Filter {col} {op} {val!r:20s} → {cond.sum()} / {len(cat)}")
         return mask
 
-    # ── Katalog laden ─────────────────────────────────────────────────────────
 
     """print(f"\nLade Katalog: {catalog_file}")
     with fits.open(catalog_file) as hdul:
@@ -157,7 +165,6 @@ def plot_cutout_grid(
     col_dec = _find_col(cat, COLNAMES["dec"])
     col_z = _find_col(cat, COLNAMES["z"])
 
-    # Filter anwenden
     if filters:
         print(f"  Wende {len(filters)} Filter an:")
         mask = apply_filters(cat, filters)
@@ -169,7 +176,6 @@ def plot_cutout_grid(
     z_arr   = cat[col_z]
     seg_arr = cat[col_seg] if col_seg else [None] * len(cat)
 
-    # ── Cube laden ────────────────────────────────────────────────────────────
 
     print(f"Lade Cube: {cube_file}")
     with fits.open(cube_file, memmap=True) as hdul:
@@ -177,21 +183,22 @@ def plot_cutout_grid(
         wcs       = WCS(hdul[0].header)
     print(f"  Shape: {cube_data.shape}")
 
-    # ── Grid erstellen ────────────────────────────────────────────────────────
 
     n_obj = len(ra_arr)
     ncols = cols_in_grid
     nrows = math.ceil(n_obj / ncols)
+    fig_height = 6.102 / 3 * nrows
 
     fig, axes = plt.subplots(
         nrows, ncols,
-        figsize=(ncols * 2.8, nrows * 2.8),
-        facecolor="#0f0f0f",
+        figsize=(6.102, fig_height),
+        facecolor="white",
+        layout="constrained",
     )
     axes_flat = np.array(axes).reshape(-1)
 
     for ax in axes_flat:
-        ax.set_facecolor("#0f0f0f")
+        ax.set_facecolor("white")
         ax.axis("off")
 
     print(f"  Erzeuge {n_obj} Cutouts ...")
@@ -203,7 +210,7 @@ def plot_cutout_grid(
         try:
             x_pix, y_pix = sky_to_pixel(ra, dec, wcs)
             z_slice = redshift_to_slice(z)
-            cutout  = extract_cutout(cube_data, x_pix, y_pix, z_slice, cutout_size)
+            cutout, z_slice = extract_cutout(cube_data, x_pix, y_pix, z_slice, cutout_size)
         except Exception as e:
             print(f"    Objekt {i+1}: Fehler – {e}")
 
@@ -215,13 +222,13 @@ def plot_cutout_grid(
             spine.set_linewidth(0.6)
 
         if cutout is None or np.all(np.isnan(cutout)):
-            ax.set_facecolor("#111111")
+            ax.set_facecolor("white")
             ax.text(0.5, 0.5, "N/A", color="gray", ha="center", va="center",
                     transform=ax.transAxes, fontsize=9)
         else:
             vmin = vmin_fixed if use_fixed_stretch else np.nanpercentile(cutout, 1)
             vmax = vmax_fixed if use_fixed_stretch else np.nanpercentile(cutout, 99)
-            ax.imshow(cutout, origin="lower", cmap=cmap,
+            last_im = ax.imshow(cutout, origin="lower", cmap=cmap,
                       vmin=vmin, vmax=vmax, interpolation="nearest")
             if label and cat[label][i]:
                 circle = plt.Circle((cutout_size/2, cutout_size/2), radius=3,
@@ -231,24 +238,32 @@ def plot_cutout_grid(
         seg_str  = f"{int(seg)}" if seg is not None else "–"
         obs_wave = rest_wavelength * (1.0 + z)
         ax.set_title(
-            f"#{i+1}  z={z:.3f}  seg={seg_str}\n{obs_wave:.0f} Å",
-            color="white", fontsize=6.0, pad=2,
+            rf"$\lambda_\mathrm{{obs}}$={obs_wave:.2f} Å",
+            color="black", fontsize=11,
         )
 
         coord_label = (f"x={int(round(x_pix))}  y={int(round(y_pix))}  sl={z_slice}"
                        if x_pix is not None else "x=?  y=?  sl=?")
-        ax.text(0.5, -0.04, coord_label, color="#aaaaaa",
+        ax.text(0.5, -0.04, coord_label, color="black",
                 ha="center", va="top", transform=ax.transAxes,
-                fontsize=5.5, fontfamily="monospace")
+                fontsize=11)
 
-    stretch_note = (f"[stretch: {vmin_fixed} … {vmax_fixed}]"
-                    if use_fixed_stretch else "[stretch: per-tile percentile]")
+    if last_im is not None:
+        cbar = fig.colorbar(
+            last_im,
+            ax=axes_flat.tolist(),
+            orientation="vertical",
+            fraction=0.02,     
+            pad=0.03,         
+            shrink=0.8         
+        )
+        cbar.ax.tick_params(labelsize=11)
+        cbar.set_label("S/N", fontsize=11)
+
     fig.suptitle(
-        f"{title}\nCutouts {cutout_size}×{cutout_size} px  |  "
-        f"λ_rest={rest_wavelength:.2f} Å  |  {stretch_note}",
-        color="white", fontsize=10, y=1.01,
+        f"λ_rest={rest_wavelength:.2f} Å",
+        color="white", fontsize=11, y=1.01,
     )
-    plt.tight_layout(pad=0.5)
     plt.savefig(output_file, dpi=300, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     plt.show()
@@ -281,9 +296,6 @@ def completeness_analysis(injected_path, detected_path, sky_radius=3.0, dz=0.5,
     return inj
 
 
-#-------------------
-# Neue Funktion um Kataloge zu matchen
-#-------------------
 
  
 def _load(path):
@@ -304,7 +316,6 @@ def crossmatch(path1, path2, rad=1.0, dz_max=0.007, use_z=True):
         dec=t2[_find_col(t2, COLNAMES["dec"])].data * u.deg,
     )
 
-    # cat1 -> idx_t1 | cat2 -> idx_t2
     idx_t1, idx_t2, _, _ = search_around_sky(cat1, cat2, rad * u.arcsec)
 
     if use_z:
@@ -318,6 +329,66 @@ def crossmatch(path1, path2, rad=1.0, dz_max=0.007, use_z=True):
 
     t1["MATCHED"] = np.zeros(len(t1), dtype=bool)
     t1["MATCHED"][matched_idx] = True
+
+    return t1
+
+
+from astropy.table import MaskedColumn
+
+def crossmatch_add(path1, path2, rad=1.0, dz_max=0.007, use_z=True, t2_prefix="t2_"):
+    t1, t2 = _load(path1), _load(path2)
+
+    ra1_col = _find_col(t1, COLNAMES["ra"])
+    dec1_col = _find_col(t1, COLNAMES["dec"])
+    ra2_col = _find_col(t2, COLNAMES["ra"])
+    dec2_col = _find_col(t2, COLNAMES["dec"])
+
+    cat1 = SkyCoord(ra=t1[ra1_col].data * u.deg, dec=t1[dec1_col].data * u.deg)
+    cat2 = SkyCoord(ra=t2[ra2_col].data * u.deg, dec=t2[dec2_col].data * u.deg)
+
+    # cat1 -> idx_t1 | cat2 -> idx_t2
+    idx_t1, idx_t2, d2d, _ = search_around_sky(cat1, cat2, rad * u.arcsec)
+
+    if use_z:
+        z1 = np.asarray(t1[_find_col(t1, COLNAMES["z"])])
+        z2 = np.asarray(t2[_find_col(t2, COLNAMES["z"])])
+        mask = np.abs(z1[idx_t1] - z2[idx_t2]) < dz_max
+        idx_t1 = idx_t1[mask]
+        idx_t2 = idx_t2[mask]
+        d2d = d2d[mask]
+
+    best = {}
+    for i1, i2, sep in zip(idx_t1, idx_t2, d2d.arcsec):
+        if i1 not in best or sep < best[i1][1]:
+            best[i1] = (i2, sep)
+
+    matched_idx = np.array(sorted(best.keys()), dtype=int)
+
+    t1["MATCHED"] = np.zeros(len(t1), dtype=bool)
+    t1["MATCHED"][matched_idx] = True
+
+    t1["dRA_arcsec"] = np.full(len(t1), np.nan)
+    t1["dDec_arcsec"] = np.full(len(t1), np.nan)
+
+    for colname in t2.colnames:
+        new_col = f"{t2_prefix}{colname}"
+        col_data = t2[colname]
+        t1[new_col] = MaskedColumn(
+            data=np.zeros(len(t1), dtype=col_data.dtype),
+            mask=np.ones(len(t1), dtype=bool),
+        )
+
+    for i1, (i2, _) in best.items():
+        ra1, dec1 = t1[ra1_col][i1], t1[dec1_col][i1]
+        ra2, dec2 = t2[ra2_col][i2], t2[dec2_col][i2]
+
+        t1["dRA_arcsec"][i1] = (ra1 - ra2) * np.cos(np.deg2rad(dec1)) * 3600.0
+        t1["dDec_arcsec"][i1] = (dec1 - dec2) * 3600.0
+
+        for colname in t2.colnames:
+            new_col = f"{t2_prefix}{colname}"
+            t1[new_col][i1] = t2[colname][i2]
+            t1[new_col].mask[i1] = False
 
     return t1
 
@@ -410,6 +481,7 @@ def luminosity_function(flux_lim, catalog, bins,
     col_flux = _find_col(cat, COLNAMES["flux"])
     col_lum = _find_col(cat, COLNAMES["luminosity"])
     col_comp = _find_col(cat, COLNAMES["completeness"])
+    col_comp_err = _find_col(cat, COLNAMES["completeness_err"])
 
     bin_edges = bins
     num_bins = len(bin_edges) - 1
@@ -428,23 +500,27 @@ def luminosity_function(flux_lim, catalog, bins,
         cat_ = cat[mask]
         
         if len(cat_) > 0:
-            bin_center = np.median(cat_[col_lum])  # oder np.mean, je nach Präferenz
+            bin_center = np.median(cat_[col_lum]) 
         else:
             bin_center = 10**((np.log10(lum_low) + np.log10(lum_high)) / 2.0)
         bin_centers.append(bin_center)
 
         completeness = []
+        completeness_err = []
         V = []
         for j in range(len(cat_)):
             f = cat_[col_flux][j]
             z = cat_[col_z][j]
             c = cat_[col_comp][j]
+            c_err = cat_[col_comp_err][j]
             vol = v_max(f, flux_lim, z, area, survey_min, survey_max)
             V.append(vol.to_value(u.Mpc**3))
             completeness.append(c)
+            completeness_err.append(c_err)
         
         V = np.array(V)
         completeness = np.array(completeness)
+        completeness_err = np.array(completeness_err)
         
         if np.any(completeness <= 0):
             print(f"Warning: bin {i} includes completeness <= 0")
@@ -458,11 +534,18 @@ def luminosity_function(flux_lim, catalog, bins,
             phi_err.append(np.nan)
             continue
         
-        Phi = np.sum(1 / (completeness[valid] * V[valid])) / delta_log_lum
+        weights = 1 / (completeness[valid] * V[valid])
+
+        rel_c_err = (completeness_err[valid] / completeness[valid])**2
+        weights_var = weights**2 * (1. +  rel_c_err)
+        
+        Phi = np.sum(weights) / delta_log_lum
+        Phi_err = np.sqrt(np.sum(weights_var)) / delta_log_lum
 
         phi.append(Phi)
+        phi_err.append(Phi_err)
 
-    return np.array(bin_centers), np.array(phi), np.array(n_gal)
+    return np.array(bin_centers), np.array(phi), np.array(phi_err), np.array(n_gal)
 
 
 
@@ -472,7 +555,7 @@ def completeness_function(x, A, B, C, D):
 def fit_erf(x_data, y_data):
     popt, _ = curve_fit(completeness_function,
                            x_data, y_data,
-                           p0=[1, 1, 0, 0])
+                           p0=[0.5, 1e-42, 1e42, 0.5])
     
     return popt
 
@@ -482,7 +565,7 @@ def completeness_model(x, popt):
 
 def radec_z_to_cartesian(ra_deg, dec_deg, z, cosmology=cosmo):
     """RA/DEC [deg] + Redshift -> comoving kartesische Koordinaten [Mpc]."""
-    d_c = cosmology.comoving_distance(z).to(u.Mpc).value  # comoving distance
+    d_c = cosmology.comoving_distance(z).to(u.Mpc).value 
     coords = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg)
     x = d_c * np.cos(coords.dec.rad) * np.cos(coords.ra.rad)
     y = d_c * np.cos(coords.dec.rad) * np.sin(coords.ra.rad)
@@ -505,7 +588,7 @@ def knn_density(positions, k=8, query_positions=None):
         offset = 0
  
     dist, _ = tree.query(query_positions, k=k_query)
-    r_k = dist[:, -1]  # Distanz zum k-ten (echten) Nachbarn
+    r_k = dist[:, -1] 
     volume = (4.0 / 3.0) * np.pi * r_k**3
     density = k / volume
     return density, r_k

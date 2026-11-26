@@ -11,6 +11,7 @@ from astropy.wcs import WCS
 
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks
 
 from photutils.aperture import (
     CircularAperture,
@@ -25,37 +26,12 @@ def gaussian(x, amp, mu, sigma, cont):
 
 
 def _is_nan_scalar(value):
-    """Konsistenter Check fuer die 'nicht gemessen'-Sentinel (np.nan) die im
-    Rest der Klasse als Ersatz fuer None/Optional benutzt wird."""
     return np.isscalar(value) and np.isnan(value)
 
 
 class Measurements:
     """
     Class to perform spectral and spatial measurements on 3D data cubes.
-
-    Qualitaets-/Detektions-Flags (wichtig bei verrauschten Spektren):
-        self.detected            : bool - wurde ueberhaupt eine Linie ueber
-                                    der Rausch-Schwelle gefunden UND war der
-                                    Gauss-Fit signifikant (amp/amp_err)?
-        self.fit_significant      : bool - Amplitude des Gauss-Fits signifikant
-                                    ueber ihrem eigenen Fehler (aus pcov)?
-        self.chi2_red             : reduziertes Chi^2 des Gauss-Fits im
-                                    line_mask-Bereich (Diagnose fuer schlechte
-                                    Fits, die formal trotzdem konvergiert sind)
-        self.mc_success_rate      : Anteil der Monte-Carlo-Iterationen in
-                                    mc_flux_err(), die erfolgreich konvergiert
-                                    sind. Bei niedriger Rate werden flux_err/
-                                    cont_err_raw auf NaN gesetzt statt eines
-                                    kuenstlich zu kleinen Fehlers aus wenigen
-                                    "guenstigen" Realisierungen.
-        self.cont_is_noise_floor  : bool - self.cont ist KEIN echtes
-                                    Kontinuum, sondern ein Rauschniveau-
-                                    Platzhalter (Kontinuum-Fit/HSC-Photometrie
-                                    war nicht verfuegbar/negativ). EW-Werte,
-                                    die darauf basieren, sind effektiv nur
-                                    obere Limits und sollten entsprechend
-                                    markiert/behandelt werden.
 
     Args:
         cube: Loaded cube data.
@@ -77,6 +53,7 @@ class Measurements:
         self,
         cube,
         cube_header,
+        error_cube,
         coords: tuple,
         catalog=None,
         catalog_skycoord=None,
@@ -117,13 +94,14 @@ class Measurements:
         self.wave_start = self.CRVAL3 + (s0 - self.CRPIX3) * self.CDELT3
 
         self.data = np.nan_to_num(cube[s0:s1, y0:y1, x0:x1], nan=0.0)
+        self.error = np.nan_to_num(error_cube[s0:s1, y0:y1, x0:x1], nan=0.0)
         if self.data.size == 0:
             raise ValueError(f"Object at ({self.ra}, {self.dec}) is fully outside cube bounds.")
 
         if self.data.shape != (2 * pad_lam, 2 * pad_xy, 2 * pad_xy):
             import warnings
             warnings.warn(
-                f"Sub-cube is truncated at the edge: shape={self.data.shape}. "
+                f"Sub-cube is at the edge: shape={self.data.shape}. "
                 "Results may be less reliable.",
                 RuntimeWarning
             )
@@ -135,7 +113,7 @@ class Measurements:
         self.min_amp_snr = min_amp_snr
         self.min_mc_success_rate = min_mc_success_rate
 
-        self.wave, self.spec = self.get_spectrum()
+        self.wave, self.spec, self.error = self.get_spectrum()
 
         fit_result = self.fit_model()
         self.peak_flux = fit_result["flux"]
@@ -147,30 +125,26 @@ class Measurements:
         self.amp_err = fit_result["amp_err"]
         self.chi2_red = fit_result["chi2_red"]
         self.fit_significant = fit_result["fit_significant"]
+        self.fwhm_kms_err = fit_result["fwhm_kms_err_"]
+        self.z_err = fit_result["z_err_"]
 
-        self.flux_err, self.cont_err_raw, self.mc_success_rate = self.mc_flux_err()
-        self.fwhm_kms = self.fwhm()
+
+        self.flux_err, self.cont_err_raw, self.center_err, self.width_err, self.mc_success_rate = self.mc_flux_err()
+        self.fwhm_kms, _ = self.fwhm()
         self.snr_ = self.snr()
         self.g_band_mag, self.mag_err = self.get_g_band_mag()
         self.cont, self.cont_err, self.cont_is_noise_floor = self.get_cont()
         self.ew_obs, self.ew, self.ew_err = self.ew()
-        self.redshift = self.center / 1215.670 - 1 if not _is_nan_scalar(self.center) else np.nan
+        self.redshift, self.redshift_err = (self.center / 1215.670 - 1 if not _is_nan_scalar(self.center) else np.nan), (self.center_err / 1215.670 if not _is_nan_scalar(self.center_err) else np.nan)
 
-        # Gesamtstatus: nur wenn wir ueberhaupt eine Linie ueber der
-        # Rausch-Schwelle gefunden haben UND der Fit signifikant war.
         self.detected = bool(self.fit_significant) and not _is_nan_scalar(self.peak_flux)
 
     # ---------------------------------------------------------------------
     # Measurement functions
     # ---------------------------------------------------------------------
-    def cog(self, r_max=15, threshold=0.05, n_avg_channels=5):
+    def cog(self, r_max=12, threshold=0.05, n_avg_channels=5):
         """
         Perform a curve of growth to find the necessary aperture.
-
-        Um die COG-Bestimmung bei verrauschten Daten nicht von einer
-        einzelnen, verrauschten Wellenlaengen-Scheibe abhaengig zu machen,
-        wird ueber n_avg_channels Kanaele um die geschaetzte Linienmitte
-        gemittelt (statt nur self.data[self.center_idx]).
         """
         half = n_avg_channels // 2
         k0 = max(self.center_idx - half, 0)
@@ -226,13 +200,27 @@ class Measurements:
         calibration = 1e-17
 
         spec_flux_values = []
+        err_values = []
+        
+        has_error_cube = (self.error is not None) and (np.any(self.error > 0))
 
         for i in range(len(wl_grid)):
             image_slice = self.data[i, :, :]
             image_slice = np.nan_to_num(image_slice, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            if has_error_cube:
+                error_slice = self.error[i, :, :]
+                error_slice = np.nan_to_num(error_slice, nan=1.0, posinf=1.0, neginf=1.0)
 
-            phot = aperture_photometry(image_slice, aperture)
-            flux = phot["aperture_sum"][0]
+                phot = aperture_photometry(image_slice, aperture, error=error_slice)
+                flux = phot["aperture_sum"][0]
+                err = phot["aperture_sum_err"][0]
+            else:
+                phot = aperture_photometry(image_slice, aperture)
+                flux = phot["aperture_sum"][0]
+                err = 1.
+            
+            
             annulus_mask = annulus.to_mask(method="center")
             annulus_data = annulus_mask.multiply(image_slice)
             annulus_data = annulus_data[annulus_data != 0]
@@ -241,24 +229,20 @@ class Measurements:
             if not np.isfinite(sky_median):
                 sky_median = 0.
 
-            substracted_flux = flux - (sky_median * aperture_area)
+            substracted_flux = flux #- (sky_median * aperture_area)
             calibrated = substracted_flux * calibration
+            
+            calibrated_err = err * calibration
 
             spec_flux_values.append(calibrated)
+            err_values.append(calibrated_err)
 
         spec_final = np.array(spec_flux_values)
+        err_final = np.array(err_values)
 
-        return wl_grid, spec_final
+        return wl_grid, spec_final, err_final
 
-    def find_line_region(self, smooth_sigma=2, search_halfwidth=20):
-        """
-        Sucht den staerksten Peak im Suchfenster um lamda_center und gibt
-        seine Grenzen zurueck - ABER nur, wenn der Peak tatsaechlich ueber
-        self.detect_snr_threshold * noise_rms liegt. Andernfalls wird
-        (nan, nan, nan) zurueckgegeben ("keine Linie gefunden"), statt
-        einen Rauschpeak als Kandidaten weiterzureichen.
-        """
-        smoothed = gaussian_filter1d(self.spec, sigma=smooth_sigma)
+    def find_line_region(self, search_halfwidth=30.0):
 
         search_window = (self.wave > self.lamda_center - search_halfwidth) & \
                         (self.wave < self.lamda_center + search_halfwidth)
@@ -266,68 +250,67 @@ class Measurements:
         if not np.any(search_window):
             return np.nan, np.nan, np.nan
 
+        sub_wave = self.wave[search_window]
+        sub_spec = self.spec[search_window]
+
         noise_rms = np.nanstd(self.spec[~search_window])
         cont_level = np.nanmedian(self.spec[~search_window])
         threshold = cont_level + self.detect_snr_threshold * noise_rms
 
-        idx_in_window = np.where(search_window)[0]
-        peak_idx = idx_in_window[np.argmax(smoothed[search_window])]
-        peak_wave = self.wave[peak_idx]
+        smoothed = gaussian_filter1d(sub_spec, sigma=1.0)
+        
+        peaks, properties = find_peaks(smoothed, height=threshold, distance=3)
 
-        # Detektions-Gate: ohne signifikanten Peak keine "gefundene" Linie.
-        if not np.isfinite(smoothed[peak_idx]) or smoothed[peak_idx] < threshold:
+        if len(peaks) == 0:
             return np.nan, np.nan, np.nan
 
+        best_peak_local = peaks[np.argmax(smoothed[peaks])]
+        peak_wave = sub_wave[best_peak_local]
+        peak_idx = np.where(self.wave == peak_wave)[0][0]
+
         left = peak_idx
-        while left > 0 and smoothed[left] > threshold:
+        while left > 0 and self.spec[left] > cont_level + 0.5 * noise_rms:
             left -= 1
         right = peak_idx
-        while right < len(smoothed) - 1 and smoothed[right] > threshold:
+        while right < len(self.spec) - 1 and self.spec[right] > cont_level + 0.5 * noise_rms:
             right += 1
 
         return peak_wave, self.wave[left], self.wave[right]
 
     def fit_model(self):
-        """
-        Gauss-Fit an die Linie. Liefert ein dict mit allen relevanten
-        Groessen UND Qualitaets-Flags (amp_err, chi2_red, fit_significant),
-        damit ein formal konvergierter, aber physikalisch bedeutungsloser
-        Fit an Rauschen erkennbar bleibt.
-
-        Als 'flux' wird konsistent der ANALYTISCHE Gauss-Flux
-        (amp * sigma * sqrt(2*pi)) verwendet - dieselbe Groesse, die auch
-        in mc_flux_err() fuer den MC-Fehler benutzt wird. Der rohe
-        Trapez-Fluss der (verrauschten) Daten wird zusaetzlich als
-        Diagnosewert unter 'flux_trapz' mitgegeben, ist aber nicht mehr
-        der primaere Schaetzer.
-        """
+        
         empty = dict(
             flux=np.nan, flux_trapz=np.nan, cont=np.nan, line_mask=np.nan,
             center=np.nan, popt=np.nan, amp_err=np.nan, chi2_red=np.nan,
-            fit_significant=False,
+            fit_significant=False, fwhm_kms_err_ = np.nan,
+                        z_err_ = np.nan
         )
 
         peak_wave, line_min, line_max = self.find_line_region()
+
+        line_indizes = (self.wave > line_min) & (self.wave < line_max)
+        cont_indizes = ((self.wave > line_min-20) & (self.wave<line_min)) | ((self.wave>line_max) & (self.wave<line_max+20))
 
         if np.isnan(peak_wave):
             return empty
 
         rough_width = max(line_max - line_min, 2.0)
-        sigma_guess = rough_width / 4.0
+        measured_width = line_max - line_min
+        
+        sigma_guess = np.clip(measured_width / 5.0, 1., 15.0)
 
-        amp_guess = np.nanmax(self.spec) - np.nanmedian(self.spec)
-        amp_max = max(3 * amp_guess, 1e-19)
-        cont_guess = np.nanmedian(self.spec)
+        amp_guess = np.nanmax(self.spec[line_indizes]) #- np.nanmedian(self.spec[line_indizes])
+        cont_guess = np.nanmedian(self.spec[cont_indizes])
 
         p0 = [amp_guess, peak_wave, sigma_guess, cont_guess]
 
         bounds = (
-            [0, line_min - 3, 0.5, -np.inf],
-            [amp_max, line_max + 3, rough_width, np.inf],
+            [amp_guess*0.95, line_min, 0.8, -np.inf],
+            [amp_guess, line_max, sigma_guess*1.5, np.inf],
         )
 
         try:
-            popt, pcov = curve_fit(gaussian, self.wave, self.spec, p0=p0, bounds=bounds, maxfev=5000)
+            popt, pcov = curve_fit(gaussian, self.wave, self.spec, sigma=self.error, absolute_sigma=True, p0=p0, bounds=bounds, maxfev=5000)
             amp, mu, sigma, cont = popt
             perr = np.sqrt(np.diag(pcov))
             amp_err = perr[0]
@@ -339,8 +322,6 @@ class Measurements:
             flux_trapz = np.trapezoid(self.spec[line_mask] - cont, self.wave[line_mask])
             flux_gauss = amp * abs(sigma) * np.sqrt(2 * np.pi)
 
-            # Guete des Fits: reduziertes Chi^2 im Linienbereich, geschaetzt
-            # ueber das Rausch-RMS ausserhalb des Fensters um lamda_center.
             search_window = (self.wave > self.lamda_center - 20) & (self.wave < self.lamda_center + 20)
             noise_rms = np.nanstd(self.spec[~search_window]) if np.any(~search_window) else np.nan
 
@@ -359,6 +340,38 @@ class Measurements:
         except RuntimeError:
             return empty
 
+        r_spec=800
+
+        perr = np.sqrt(np.diag(pcov))
+        mu_err = perr[1]
+        sigma_err = perr[2]
+
+        fwhm_obs = 2.3548 * sigma
+        fwhm_inst_AA = mu / r_spec
+
+        try:
+            if pcov is not None and np.all(np.isfinite(pcov)):
+                diag = np.diag(pcov)
+                if np.all(diag >= 0):
+                    perr = np.sqrt(diag)
+                    mu_err = perr[1]
+                    sigma_err = perr[2]
+
+                    redshift_err = mu_err / 1215.670
+
+                    fwhm_obs = 2.3548 * sigma
+                    fwhm_inst_AA = mu / r_spec
+                    if fwhm_obs > fwhm_inst_AA:
+                        fwhm_intrinsic_AA = np.sqrt(fwhm_obs**2 - fwhm_inst_AA**2)
+                        dfwhm_dsigma = (2.3548**2 * sigma) / fwhm_intrinsic_AA
+                        err_intrinsic = abs(dfwhm_dsigma) * sigma_err
+                        c_kms = 299792.458
+                        fwhm_kms_err = (err_intrinsic / mu) * c_kms
+        except (ValueError, ZeroDivisionError, IndexError):
+            fwhm_kms_err = np.nan
+            redshift_err = np.nan
+
+
         return dict(
             flux=flux_gauss,
             flux_trapz=flux_trapz,
@@ -369,46 +382,40 @@ class Measurements:
             amp_err=amp_err,
             chi2_red=chi2_red,
             fit_significant=fit_significant,
+            fwhm_kms_err_ = fwhm_kms_err,
+            z_err_ = redshift_err
         )
 
-    def mc_flux_err(self, n_iter=200):
-        """
-        Monte-Carlo-Fehlerschaetzung fuer flux und Kontinuum durch
-        wiederholtes Fitten von rauschperturbierten Spektren.
+    def mc_flux_err(self, n_iter=10):
 
-        Aenderungen ggue. vorher:
-        - p0/bounds werden um das GEFITTETE Linienzentrum (self.center)
-          statt um das rein systemische lamda_center gebaut, da Lyα haeufig
-          gegenueber dem systemischen z verschoben ist - das verbessert die
-          Konvergenzrate gerade bei verrauschten Spektren.
-        - Es wird mitgezaehlt, wie viele der n_iter Iterationen tatsaechlich
-          konvergieren. Liegt die Erfolgsquote unter
-          self.min_mc_success_rate, gelten die Fehler als nicht
-          verlaesslich und werden auf NaN gesetzt (statt still aus wenigen
-          "guenstigen" Realisierungen einen zu kleinen Fehler zu bekommen).
-        """
         if _is_nan_scalar(self.line_mask):
-            return np.nan, np.nan, 0.0
+            return np.nan, np.nan, np.nan, np.nan, 0.0
 
         noise_rms = np.nanstd(self.spec[~self.line_mask])
         center_idx = np.argmin(np.abs(self.wave - self.center))
         fluxes = []
         conts = []
+        centers = []
+        widths = []
         n_success = 0
+
+        popt_init = self.popt
 
         for _ in range(n_iter):
             perturbed = self.spec + np.random.normal(0, noise_rms, size=self.spec.shape)
             try:
                 amp_guess = perturbed[center_idx] - np.nanmedian(perturbed)
-                p0 = amp_guess, self.center, 2, np.nanmedian(perturbed)
+                p0 = amp_guess, self.center, popt_init[2], np.nanmedian(perturbed)
                 bounds = (
-                    [-np.inf, self.center - 20, 0.5, -np.inf],
-                    [np.inf, self.center + 20, 15, np.inf],
+                    [-np.inf, self.center - 20, popt_init[2]*0.8, -np.inf],
+                    [np.inf, self.center + 20, popt_init[2]*2, np.inf],
                 )
                 popt, _ = curve_fit(gaussian, self.wave, perturbed, p0, bounds=bounds, maxfev=5000)
-                amp, _, sigma, cont = popt
+                amp, center, sigma, cont = popt
                 fluxes.append(amp * abs(sigma) * np.sqrt(2 * np.pi))
                 conts.append(cont)
+                centers.append(center)
+                widths.append(sigma)
                 n_success += 1
             except RuntimeError:
                 continue
@@ -416,31 +423,36 @@ class Measurements:
         success_rate = n_success / n_iter
 
         if success_rate < self.min_mc_success_rate:
-            return np.nan, np.nan, success_rate
+            return np.nan, np.nan, np.nan, np.nan, success_rate
 
         fluxes_arr = np.array(fluxes)
         conts_arr = np.array(conts)
-        return np.std(fluxes_arr), np.std(conts_arr), success_rate
+        centers = np.array(centers)
+        widths = np.array(widths)
+        return np.std(fluxes_arr), np.std(conts_arr), np.std(centers), np.std(widths), success_rate
 
-    def fwhm(self, r_spec=750):
+    def fwhm(self, r_spec=800):
         if _is_nan_scalar(self.popt):
-            return np.nan
+            return np.nan, np.nan
 
         _, mu, sigma, _ = self.popt
+        w_err = self.width_err
         fwhm_obs = 2.3548 * sigma
 
         fwhm_inst_AA = mu / r_spec
         fwhm_intrinsic_AA = np.sqrt(max(fwhm_obs ** 2 - fwhm_inst_AA ** 2, 0))
 
+        err_intrinsic = 2.3548**2 * sigma * w_err / fwhm_intrinsic_AA
+
         c_kms = 299792.458
-        return fwhm_intrinsic_AA / mu * c_kms
+        return fwhm_intrinsic_AA / mu * c_kms, err_intrinsic / mu * c_kms
 
     def snr(self):
         if np.isnan(self.peak_flux) or np.isnan(self.flux_err) or self.flux_err == 0:
             return np.nan
         return self.peak_flux / self.flux_err
 
-    def get_g_band_mag(self, tol=2.):
+    def get_g_band_mag(self, tol=1.):
         if isinstance(self.ra, str):
             c_obj = SkyCoord(self.ra, self.dec, frame="icrs")
         else:
@@ -468,16 +480,6 @@ class Measurements:
         return f_cont, cont_err
 
     def get_cont(self):
-        """
-        Rueckgabe: (cont, cont_err, cont_is_noise_floor)
-
-        cont_is_noise_floor=True bedeutet: weder der Kontinuum-Fit noch die
-        HSC-Photometrie lieferten einen brauchbaren (positiven, endlichen)
-        Wert - stattdessen wurde das Rausch-RMS ausserhalb der Linie als
-        Platzhalter benutzt. EW-Werte auf dieser Basis sind effektiv nur
-        obere Limits und sollten in nachgelagerten Analysen entsprechend
-        gefiltert/markiert werden.
-        """
         if np.isnan(self.g_band_mag):
             cont, err = self.cont_fit, self.cont_err_raw
         else:
@@ -515,49 +517,54 @@ class Measurements:
         cont_err = self.cont_err
 
         return (
-            ew_obs, ew, err, flux, flux_err, cont, cont_err, z, self.fwhm_kms, self.snr_,
+            ew_obs, ew, err, flux, flux_err, cont, cont_err, z, self.z_err, self.fwhm_kms, self.fwhm_kms_err, self.snr_,
             self.detected, self.fit_significant, self.chi2_red,
             self.mc_success_rate, self.cont_is_noise_floor,
         )
 
-    def plot_ew(self, save_path=None, show=False):
-        """
-        save_path : str oder None — falls gesetzt, wird der Plot dort gespeichert
-        show      : bool — ob der Plot interaktiv angezeigt werden soll (nur für Einzelfälle sinnvoll)
-        """
+    def plot_ew(self, ax=None, save_path=None, show=False):
+        
+        if ax is None:
+            fig, current_ax = plt.subplots(figsize=(3.051, 3.051))
+        else:
+            current_ax = ax
+            fig = current_ax.figure
+
         if _is_nan_scalar(self.popt):
-            raise RuntimeError(
-                "Kein signifikanter Fit vorhanden (self.detected=False) - "
-                "plot_ew() kann kein Modell zeichnen."
-            )
+            wave, spec = self.wave, self.spec
+            current_ax.plot(wave, spec, color="blue", lw=1, label="Spectrum")
+            current_ax.set_xlabel(r"$\lambda [\mathrm{\AA}]$", fontsize=11)
+            current_ax.set_ylabel(r"$f_{\mathrm{Ly}\alpha} [\mathrm{erg \, s^{-1} \, cm^{-2} \, \mathrm{\AA}^{-1}}]$", fontsize=10)
 
-        ew = self.ew
-        spec = self.spec
-        wave = self.wave
-        cont = self.cont
-        amp, mu, sig, con = self.popt
-        gauss = gaussian(wave, amp, mu, sig, con)
-        line_mask = self.line_mask
+        else:
+            ew = self.ew
+            wave = self.wave
+            cont = self.cont / 1e-17
+            amp, mu, sig, con = self.popt
+            spec = self.spec / 1e-17
+            gauss = gaussian(wave, amp, mu, sig, con) / 1e-17
+            line_mask = self.line_mask
 
-        fig, ax = plt.subplots(figsize=(7, 5))
-        ax.plot(wave, spec, color="blue", lw=1, label="Flux")
-        ax.plot(wave, gauss, color="red", lw=2, ls=":", alpha=0.5, label="Gauss Fit")
-        ax.fill_between(wave[line_mask], spec[line_mask], cont, color="grey", alpha=0.3, label="Line Region")
-        ax.axhline(y=cont, color="green", ls="--", lw=1, label="Cont Level")
-        ax.set_xlabel("Wavelength [Å]")
-        ax.set_ylabel(r"Flux $\frac{erg}{s \, cm^2 \, \AA}$")
-        ax.legend(loc="best")
-        title = f"EW = {ew:.1f} [Å], z = {self.redshift:.3f}"
-        if self.cont_is_noise_floor:
-            title += "  [Cont = noise floor]"
-        if not self.fit_significant:
-            title += "  [NOT significant]"
-        ax.set_title(title)
-        plt.tight_layout()
+            plot_mask = (wave > (mu - 80)) & (wave < (mu + 80))
+
+            current_ax.plot(wave[plot_mask], spec[plot_mask], color="blue", lw=1, label="Spectrum")
+            current_ax.plot(wave[plot_mask], gauss[plot_mask], color="red", lw=2, ls=":", alpha=0.5, label="Gauss Fit")
+            current_ax.fill_between(wave[line_mask], spec[line_mask], 0, color="grey", alpha=0.3, label="Line Region")
+            current_ax.axhline(y=cont, color="green", ls="--", lw=1, label="Cont Level")
+            current_ax.set_xlabel(r"$\lambda [\mathrm{\AA}]$", fontsize=11)
+            current_ax.set_ylabel(r"$f_{\mathrm{Ly}\alpha} [10^{-17} \, \mathrm{erg \, s^{-1} \, cm^{-2} \, \mathrm{\AA}^{-1}}]$", fontsize=11)
+            #current_ax.legend(loc="best", fontsize=8)
+            title = rf"$z$ = {self.redshift-0.002:.3f}"
+            current_ax.set_title(title, fontsize=11)
+
+        if ax is None:
+            plt.tight_layout()
 
         if save_path is not None:
-            plt.savefig(save_path, dpi=150, bbox_inches="tight")
+            fig.savefig(save_path, dpi=300, bbox_inches="tight")
+            
         if show:
             plt.show()
 
-        plt.close(fig)
+        if ax is None:
+            plt.close(fig)
